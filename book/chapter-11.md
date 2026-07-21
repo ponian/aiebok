@@ -592,6 +592,7 @@ graph TB
 | 縮寫 | 英文全稱 | 中文說明 |
 |------|---------|---------|
 | **CCA** | Central Coordination Agent | 中央協調 Agent，負責接收用戶請求、任務分解、Agent 路由與結果整合 |
+| **A2A** | Agent-to-Agent Communication | Agent 間通信模式，包括同步 RPC、異步消息、發布/訂閱三種模式 |
 | **MCP** | Model Context Protocol | Anthropic 提出的模型上下文協議，用於 LLM 與外部工具/數據源的標準化通信 |
 | **Letta** | Letta (formerly MemGPT) | 開源 Agent 框架，支持長期記憶、對話狀態管理，Apache 2.0 授權 |
 | **LangGraph** | LangGraph | LangChain 生態的工作流編排框架，基於有狀態的有向圖實現 Agent 工作流 |

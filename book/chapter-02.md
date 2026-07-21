@@ -466,7 +466,115 @@ sequenceDiagram
 
 ---
 
-## 2.5 Letta Agent Framework：Agent 的生命週期與集成
+## 2.5 Agent-to-Agent (A2A) 通信模式
+
+MCP 定義了上下文信息的**格式標準**，但 Agent 之間「如何互動」— 何時同步等待、何時異步發送、何時廣播事件 — 則由 A2A（Agent-to-Agent）通信模式決定。MCP 是**傳輸層**，A2A 是**交互模式**。
+
+### 2.5.1 A2A vs MCP 的關係
+
+```
+┌─────────────────────────────────────────────────┐
+│                  A2A 交互模式                     │
+│   同步 RPC  │  異步消息  │  發布/訂閱 (Pub/Sub)  │
+├─────────────────────────────────────────────────┤
+│              MCP 協議標準                         │
+│   格式規範  │  上下文交換  │  工具發現與調用       │
+├─────────────────────────────────────────────────┤
+│              傳輸層                               │
+│   HTTP/SSE  │  gRPC  │  NATS 消息隊列            │
+└─────────────────────────────────────────────────┘
+```
+
+**核心區別**：
+
+| 維度 | MCP | A2A |
+|------|-----|-----|
+| **定位** | 協議標準（格式） | 交互模式（行為） |
+| **定義** | 上下文如何封裝、傳遞、解析 | Agent 之間何時通信、以何種方式通信 |
+| **類比** | HTTP 協議 | RESTful API 設計模式 |
+| **關注點** | 數據格式、序列化、版本兼容 | 時序、依賴、錯誤恢復、並發控制 |
+
+### 2.5.2 三種通信模式
+
+在本平台中，Agent 之間的通信可以分為三種模式：
+
+| 模式 | 場景 | 特點 | 實現方式 |
+|------|------|------|---------|
+| **同步 RPC** | CCA 調用 IT Agent 創建賬戶 | 調用方阻塞等待結果，適合單步快速任務 | MCP `tools/call` + HTTP/gRPC |
+| **異步消息** | CCA 發送長時間任務給 Agent | 調用方立即返回，通過回調或輪詢獲取結果 | MCP + NATS 消息隊列 |
+| **發布/訂閱** | Agent 廣播「新員工已入職」事件 | 多個訂閱者接收事件，鬆耦合 | NATS Pub/Sub + MCP 事件格式 |
+
+### 2.5.3 A2A 交互序列圖
+
+```mermaid
+sequenceDiagram
+    participant U as 👤 User
+    participant P as 🖥️ Portal
+    participant C as 🧠 CCA
+    participant M as 📡 MCP Service
+    participant I as 💻 IT Agent
+    participant H as 👥 HR Agent
+    participant N as 📨 NATS
+
+    Note over U,N: 場景：新員工入職 — 同步 + 異步 + Pub/Sub
+
+    U->>P: 「為新員工 Alice 創建賬戶」
+    P->>C: POST /api/chat (REST)
+
+    rect rgb(230, 245, 255)
+        Note over C,N: 步驟 1：同步 RPC — 查詢 HR 數據
+        C->>M: tools/call (query_employee, {name: "Alice"})
+        M->>H: 轉發工具調用
+        H-->>M: {department: "Engineering", level: "L3"}
+        M-->>C: HR 數據返回
+    end
+
+    rect rgb(255, 245, 230)
+        Note over C,N: 步驟 2：異步消息 — 創建 IT 賬戶（長任務）
+        C->>M: tools/call (create_account, {user: "Alice", dept: "Engineering"})
+        M->>N: 發布異步任務
+        N->>I: 消費任務
+        I-->>N: 任務已接受 (ack)
+        N-->>M: task_id: "abc-123"
+        M-->>C: {task_id: "abc-123", status: "processing"}
+        C-->>P: 「IT 賬戶創建中，任務 ID: abc-123」
+        P-->>U: 顯示任務狀態
+    end
+
+    rect rgb(230, 255, 230)
+        Note over C,N: 步驟 3：Pub/Sub — 廣播入職事件
+        I->>N: publish("employee.onboarded", {user: "Alice"})
+        N->>H: 訂閱者收到事件
+        N->>C: 訂閱者收到事件
+        H->>H: 自動發送歡迎郵件
+        C->>C: 更新任務狀態為完成
+    end
+
+    C-->>P: WebSocket 推送完成通知
+    P-->>U: 「Alice 的 IT 賬戶已創建，歡迎郵件已發送」
+```
+
+### 2.5.4 A2A 在本平台中的實踐
+
+| 通信路徑 | 模式 | 原因 |
+|---------|------|------|
+| **Portal → CCA** | 同步 HTTP/REST | 用戶等待即時響應 |
+| **CCA → Specialized Agent（簡單任務）** | 同步 MCP tools/call | 任務秒級完成，阻塞可接受 |
+| **CCA → Specialized Agent（複雜任務）** | 異步 NATS 消息 | 任務耗時長，不阻塞 CCA |
+| **Agent → Agent（跨部門事件）** | Pub/Sub via NATS | 鬆耦合，多訂閱者，事件驅動 |
+| **Agent → MCP Service（工具註冊）** | 同步 HTTP | 啟動時一次性註冊 |
+| **MCP Service → Agent（心跳/健康檢查）** | 異步定期輪詢 | 監控 Agent 可用性 |
+
+**設計原則**：
+
+1. **默認同步**：除非有明確的異步需求，否則使用同步 RPC。同步模型更容易推理和調試。
+2. **異步需明確標記**：異步任務必須返回 `task_id`，並支持狀態查詢（`GET /tasks/{id}`）。
+3. **事件需幂等**：Pub/Sub 事件的消費者必須實現幂等處理，因為 NATS 可能投遞重複消息。
+4. **所有通信經過 MCP Service**：即使 Agent 之間直接通信，也必須通過 MCP Service 路由，以確保可觀察性。
+
+---
+
+## 2.6 Letta Agent Framework：Agent 的生命週期與集成
 
 ### 2.5.1 為什麼選擇 Letta
 
@@ -501,9 +609,9 @@ Letta（https://github.com/letta-ai/letta，前身為 MemGPT）是一個開源�
 
 ---
 
-## 2.6 Portal Platform：人機交互的入口
+## 2.7 Portal Platform：人機交互的入口
 
-### 2.6.1 功能定位
+### 2.7.1 功能定位
 
 Portal Platform 是用戶與 AI Native Agent Platform 交互的唯一入口，其核心功能：
 
@@ -523,7 +631,7 @@ Portal Platform 是用戶與 AI Native Agent Platform 交互的唯一入口，�
 
 ---
 
-## 2.7 Cloud-Native Foundation：彈性、可擴展性與可觀測性的基石
+## 2.8 Cloud-Native Foundation：彈性、可擴展性與可觀測性的基石
 
 ### 2.7.1 技術棧總覽
 
@@ -573,7 +681,7 @@ graph TB
 
 ---
 
-## 2.8 組件交互全景：一個請求的完整旅程
+## 2.9 組件交互全景：一個請求的完整旅程
 
 讓我們通過一個具體場景，看看所有組件如何協同工作：
 
@@ -632,6 +740,7 @@ sequenceDiagram
 - **CCA（中央協調 Agent）**：平台的「大腦」，負責意圖理解、任務分解、Agent 調度、結果整合，具有七大核心職責
 - **Specialized Agents**：平台的「執行層」，深而窄的領域專家，通過標準化 Schema 暴露能力
 - **MCP Service**：標準化的通信基礎設施，確保所有 Agent 間通信可觀察、可審計
+- **A2A 通信模式**：三種交互模式（同步 RPC、異步消息、Pub/Sub），MCP 是傳輸層，A2A 是交互模式
 - **Letta Framework**：Agent 的開發框架，提供狀態持久化與記憶管理
 - **Portal Platform**：用戶交互入口，對話優先、透明性、漸進式披露
 - **Cloud-Native Foundation**：Kubernetes + Istio + OpenTelemetry + NATS 構成的基礎設施
