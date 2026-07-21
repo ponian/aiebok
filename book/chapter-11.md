@@ -493,9 +493,76 @@ graph TB
 
 ---
 
-## 11.13 質量保證策略
+## 11.15 變革管理策略
 
-### 11.13.1 測試金字塔
+技術平台的成功不僅取決於代碼質量，更取決於**人是否願意使用**。以下是變革管理的系統化方法。
+
+### 11.15.1 識別反對原因
+
+| 反對類型 | 典型表現 | 根本原因 |
+|---------|---------|---------|
+| **恐懼型** | "Agent 會取代我的工作嗎？" | 對自動化的不安全感 |
+| **複雜型** | "現在的流程已經夠用了" | 學習新系統的認知負擔 |
+| **信任型** | "AI 會不會犯錯？" | 對 LLM 幻覺和錯誤的擔憂 |
+| **主權型** | "我的數據為什麼要給 AI？" | 對數據隱私和控制權的關切 |
+| **政治型** | "這不是我們部門的優先級" | 跨部門利益分配不均 |
+
+### 11.15.2 利益相關者地圖
+
+```mermaid
+graph TB
+    subgraph "高影響力"
+        A[CTO / IT 主管] -->|決策者| B[預算批准]
+        C[部門主管] -->|影響者| D[資源分配]
+        E[安全長] -->|守門人| F[合規審批]
+    end
+
+    subgraph "高關切度"
+        G[IT 操作人員] -->|直接使用者| H[日常影響]
+        I[HR 人員] -->|協作方| J[流程變更]
+        K[終端用戶] -->|受益者| L[體驗變化]
+    end
+
+    A -.->|支持| G
+    C -.->|支持| I
+    E -.->|保障| K
+```
+
+### 11.15.3 分階段溝通計劃
+
+| 階段 | 目標受眾 | 溝通內容 | 方式 | 頻率 |
+|------|---------|---------|------|------|
+| **POC 前** | 高層管理層 | 商業價值、ROI、競品動態 | 簡報 | 一次性 |
+| **POC 期間** | 技術團隊 | 架構設計、技術選型 | 工作坊 | 每週 |
+| **MVP 前** | 全體員工 | 平台願景、將帶來的變化 | Town Hall | 一次性 |
+| **MVP 後** | IT/HR 部門 | 使用教程、成功案例 | 實操培訓 | 每兩週 |
+| **生產上線** | 全體用戶 | 新功能、使用指南、FAQ | 內部公告 | 每月 |
+
+### 11.15.4 示範與早期勝利
+
+早期勝利（Quick Wins）是說服反對者最有效的方式：
+
+| 時機 | 示範內容 | 預期效果 |
+|------|---------|---------|
+| **Phase 1 完成** | 演示 IT Agent 自動創建 AD 賬戶 | 證明技術可行性 |
+| **Phase 2 中期** | HR 部門試用入職流程 | 收集真實反饋，建立信心 |
+| **Phase 2 完成** | 全公司 demo day | 展示跨部門協同價值 |
+| **Phase 3 完成** | 壓力測試結果展示 | 證明生產就緒 |
+
+### 11.15.5 持續回饋機制
+
+| 機制 | 頻率 | 目的 | 負責人 |
+|------|------|------|--------|
+| **用戶滿意度調查** | 每月 | 量化用戶體驗 | 產品經理 |
+| **使用數據分析** | 每週 | 識別使用瓶頸 | 數據分析師 |
+| **問題反饋渠道** | 隨時 | 收集即時問題 | 客戶成功 |
+| **季度回顧會議** | 每季 | 調整策略方向 | 技術負責人 |
+
+---
+
+## 11.16 質量保證策略
+
+### 11.16.1 測試金字塔
 
 ```mermaid
 graph TB
@@ -507,7 +574,7 @@ graph TB
     style C fill:#6f6
 ```
 
-### 11.13.2 各階段測試重點
+### 11.16.2 各階段測試重點
 
 | 階段 | 測試類型 | 工具 | 覆蓋率目標 |
 |------|---------|------|-----------|
@@ -515,6 +582,47 @@ graph TB
 | **Phase 2** | + E2E + Performance | Playwright, Locust | > 70% |
 | **Phase 3** | + Security + Chaos | Snyk, Chaos Mesh | > 80% |
 | **Phase 4** | + Contract Testing | Pact | > 85% |
+
+---
+
+## 11.14 術語表（Glossary）
+
+本章及全書涉及的核心術語一覽：
+
+| 縮寫 | 英文全稱 | 中文說明 |
+|------|---------|---------|
+| **CCA** | Central Coordination Agent | 中央協調 Agent，負責接收用戶請求、任務分解、Agent 路由與結果整合 |
+| **MCP** | Model Context Protocol | Anthropic 提出的模型上下文協議，用於 LLM 與外部工具/數據源的標準化通信 |
+| **Letta** | Letta (formerly MemGPT) | 開源 Agent 框架，支持長期記憶、對話狀態管理，Apache 2.0 授權 |
+| **LangGraph** | LangGraph | LangChain 生態的工作流編排框架，基於有狀態的有向圖實現 Agent 工作流 |
+| **OTel** | OpenTelemetry | CNCF 可觀測性標準，提供 Traces、Metrics、Logs 的統一採集與傳輸 |
+| **RAG** | Retrieval-Augmented Generation | 檢索增強生成，結合外部知識庫提升 LLM 回答準確性 |
+| **LLM** | Large Language Model | 大型語言模型，如 GPT-4、Claude、Llama 等 |
+| **KPI** | Key Performance Indicator | 關鍵績效指標，用於量化衡量項目進展與成果 |
+| **MTTR** | Mean Time To Recovery | 平均恢復時間，衡量系統故障後的修復速度 |
+| **FTE** | Full-Time Equivalent | 全職當量，用於衡量人力節省（1 FTE = 1 個全職員工的工作量） |
+| **TCO** | Total Cost of Ownership | 總擁有成本，包含基礎設施、人力、培訓等所有相關費用 |
+| **SRE** | Site Reliability Engineering | 站點可靠性工程，Google 創導的運維方法論 |
+| **RBAC** | Role-Based Access Control | 基於角色的訪問控制，根據用戶角色分配權限 |
+| **OIDC** | OpenID Connect | 基於 OAuth 2.0 的身份認證協議 |
+| **Helm** | Helm | Kubernetes 的包管理器，用於定義、安裝和升級 K8s 應用 |
+| **ArgoCD** | ArgoCD | Kubernetes 的 GitOps 持續部署工具 |
+| **Istio** | Istio | 開源服務網格，提供流量管理、安全、可觀測性 |
+| **ChromaDB** | ChromaDB | 開源向量數據庫，用於 RAG 知識庫的向量存儲與檢索 |
+| **NATS** | NATS | 輕量級消息隊列系統，適合雲原生架構 |
+| **LiteLLM** | LiteLLM Proxy | LLM 代理層，統一管理多個 LLM 供應商的 API 調用 |
+| **CI/CD** | Continuous Integration / Continuous Delivery | 持續集成 / 持續交付，自動化構建、測試、部署流程 |
+| **VPC** | Virtual Private Cloud | 虛擬私有雲，提供網絡隔離與安全 |
+| **PDB** | Pod Disruption Budget | K8s 資源，限制自愿中斷期間不可用的 Pod 數量 |
+| **HPA** | Horizontal Pod Autoscaler | K8s 自動擴展器，根據指標自動調整 Pod 副本數 |
+| **mTLS** | Mutual TLS | 雙向 TLS 認證，服務間互相驗證身份 |
+| **SPIFFE** | Secure Production Identity Framework for Everyone | 雲原生服務身份標準 |
+| **WASM** | WebAssembly | 可在瀏覽器和服務器運行的二進制指令格式 |
+| **SSE** | Server-Sent Events | 服務器推送事件，用於實時流式數據傳輸 |
+| **WebSocket** | WebSocket | 全雙工通信協議，支持瀏覽器與服務器的實時雙向通信 |
+| **POC** | Proof of Concept | 概念驗證，用於驗證技術方案可行性的初步實現 |
+| **MVP** | Minimum Viable Product | 最小可行產品，包含核心功能的初步版本 |
+| **ADR** | Architecture Decision Record | 架構決策記錄，用於記錄重要的技術決策及其理由 |
 
 ---
 
@@ -530,6 +638,8 @@ graph TB
 - **里程碑**：每階段 4 個關鍵里程碑，有明確驗證標準
 - **風險管理**：識別風險、制定應對策略、準備回滾方案
 - **團隊組建**：核心團隊 + 擴展團隊，按階段配置人力
+- **變革管理**：識別反對原因、利益相關者地圖、分階段溝通、早期勝利、回饋機制
+- **術語表**：30+ 核心術語的中英文對照與說明
 
 ---
 
