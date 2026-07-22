@@ -1,0 +1,207 @@
+version: '3.8'
+
+services:
+  # --- Infrastructure ---
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_platform}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nats:
+    image: nats:2-alpine
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--jetstream", "--store_dir", "/data"]
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD", "nats-server", "--signal", "ldm="]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadata:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # --- Mock Services ---
+  ad-api:
+    build: ./mocks/ad-api
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  hr-api:
+    build: ./mocks/hr-api
+    ports:
+      - "8091:8091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # --- Agents ---
+  mcp-service:
+    build: ./mcp_service
+    ports:
+      - "8083:8083"
+    environment:
+      - NATS_URL=nats://nats:4222
+      - MCP_PORT=8083
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  hr-agent:
+    build: ./agents/hr_agent
+    ports:
+      - "8081:8081"
+    environment:
+      - NATS_URL=nats://nats:4222
+      - HR_API_URL=http://hr-api:8091
+      - AGENT_PORT=8081
+    depends_on:
+      nats:
+        condition: service_healthy
+      hr-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  it-agent:
+    build: ./agents/it_agent
+    ports:
+      - "8082:8082"
+    environment:
+      - NATS_URL=nats://nats:4222
+      - AD_API_URL=http://ad-api:8090
+      - AGENT_PORT=8082
+    depends_on:
+      nats:
+        condition: service_healthy
+      ad-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  cca-agent:
+    build: ./agents/cca
+    ports:
+      - "8084:8084"
+    environment:
+      - NATS_URL=nats://nats:4222
+      - MCP_SERVICE_URL=http://mcp-service:8083
+      - OLLAMA_URL=http://ollama:11434
+      - LLM_MODEL=${LLM_MODEL:-llama3:8b}
+      - CCA_PORT=8084
+    depends_on:
+      nats:
+        condition: service_healthy
+      mcp-service:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # --- Portal ---
+  portal-backend:
+    build: ./portal/backend
+    ports:
+      - "8085:8085"
+    environment:
+      - NATS_URL=nats://nats:4222
+      - CCA_URL=http://cca-agent:8084
+      - PORTAL_PORT=8085
+    depends_on:
+      cca-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  portal-frontend:
+    build: ./portal/frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      portal-backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  natsdata:
+  chromadata:
+  ollama:
