@@ -564,7 +564,8 @@ service:
 | **可視化** | Grafana | 儀表板與可視化 | AGPL | 功能強大，插件豐富 |
 | **日誌聚合** | Loki | 日誌存儲與查詢 | AGPL | 與 Grafana 深度集成，成本低 |
 | **分散式追蹤** | Jaeger | Trace 存儲與分析 | Apache 2.0 | CNCF 項目，Uber 開源 |
-| **Portal UI** | Streamlit | 快速構建 Web 界面 | Apache 2.0 | 極低開發成本，Python 原生 |
+| **Portal Frontend** | Next.js 14 + shadcn/ui | 現代化 React 框架，SSR/SSG | MIT | 生態豐富，性能優異 |
+| **Portal Backend** | FastAPI | 異步 Python Web 框架 | MIT | 與 Python Agent 無縫集成 |
 | **向量數據庫** | ChromaDB | RAG 向量存儲 | Apache 2.0 | 輕量級，易於嵌入 |
 
 ### 4.4.2 免費雲端替代方案

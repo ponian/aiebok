@@ -28,7 +28,7 @@
 | [第 7 章](chapter-07.md) | MCP Service 詳解 | Protobuf Schema、gRPC 服務、消息隊列集成 |
 | [第 8 章](chapter-08.md) | Kubernetes 雲原生部署 | Helm Charts、Istio 流量管理、CI/CD Pipeline |
 | [第 9 章](chapter-09.md) | OpenTelemetry 實踐 | OTel instrumentation、Trace/Metrics/Logs 整合 |
-| [第 10 章](chapter-10.md) | Portal Platform | Streamlit UI、用戶管理、RBAC |
+| [第 10 章](chapter-10.md) | Portal Platform | Next.js 14 前端、FastAPI 後端、用戶管理、RBAC |
 
 ### 階段三：實作路線圖 (Roadmap) 與參考實作
 
@@ -53,7 +53,8 @@
 | 遙測 | OpenTelemetry | Apache 2.0 |
 | 監控 | Prometheus + Grafana | Apache 2.0 / AGPL |
 | 日誌 | Loki | AGPL |
-| Portal UI | Streamlit | Apache 2.0 |
+| Portal Frontend | Next.js 14 + shadcn/ui | MIT |
+| Portal Backend | FastAPI | MIT |
 
 ---
 
