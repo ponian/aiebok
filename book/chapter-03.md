@@ -12,40 +12,40 @@
 
 LLM 是 Agent 的「推理引擎」，選型需要在三個維度間權衡：
 
-| 維度 | 雲端 API（GPT-4o, Claude 3.5） | 本地部署（Llama 3, Mistral） |
+| 維度 | 雲端 API（GPT-5, Claude Opus 4, Gemini 3） | 本地部署（Llama 4, Qwen 3, Mistral Large 3） |
 |------|------|------|
-| **推理能力** | 最強，複雜推理任務表現優異 | 中等到良好，取決於模型大小 |
+| **推理能力** | 最強，GPT-5 與 Claude Opus 4 在複雜推理任務表現優異 | 中等到良好，Llama 4 Scout 與 Qwen 3 235B 已接近雲端水平 |
 | **成本** | 按 token 計費，大規模使用成本高 | 硬體投資為主，邊際成本低 |
 | **數據隱私** | 數據離開企業環境 | 數據完全在企業內部 |
-| **延遲** | 網絡延遲 + API 排隊，通常 1-5 秒 | 本地推理，通常 0.5-3 秒 |
+| **延遲** | 網絡延遲 + API 排隊，通常 1-3 秒 | 本地推理，通常 0.5-2 秒 |
 | **可用性** | 依賴外部服務 SLA | 自主可控 |
 
-**本書的選型建議**：
+**本書的選型建議（2026 年更新）**：
 
 對於企業內部平台，我們建議採用**混合策略**：
 
-- **CCA（中央協調 Agent）**：使用最強的雲端模型（如 GPT-4o 或 Claude 3.5 Sonnet），因為其推理質量直接決定任務分解與調度的正確性，且調用頻率相對較低（每個用戶請求一次）。
-- **Specialized Agents**：使用本地部署的開源模型（如 Llama 3 70B 或 Mistral Large），因為其任務相對明確，調用頻率高，且數據隱私要求更強。
-- **開發與測試環境**：使用 Ollama 本地運行較小模型（Llama 3 8B），實現零成本快速迭代。
+- **CCA（中央協調 Agent）**：使用最強的雲端模型（如 GPT-5 或 Claude Opus 4），因為其推理質量直接決定任務分解與調度的正確性，且調用頻率相對較低（每個用戶請求一次）。
+- **Specialized Agents**：使用本地部署的開源模型（如 Llama 4 Scout/Maverick 或 Qwen 3 235B），因為其任務相對明確，調用頻率高，且數據隱私要求更強。2026 年開源模型性能已大幅提升，Llama 4 Scout 僅 17B active 參數即可媲美更大模型。
+- **開發與測試環境**：使用 Ollama 本地運行較小模型（Qwen 3 8B 或 Phi-4），實現零成本快速迭代。
 
 ```python
-# LLM 配置示例（混合策略）
+# LLM 配置示例（混合策略 - 2026 年更新）
 LLM_CONFIG = {
     "cca": {
         "provider": "anthropic",
-        "model": "claude-3-5-sonnet-20241022",
-        "max_tokens": 4096,
+        "model": "claude-opus-4-20250514",
+        "max_tokens": 8192,
         "temperature": 0.1,  # 低溫度確保決策穩定性
     },
     "specialized_agents": {
         "provider": "ollama",
-        "model": "llama3:70b",
+        "model": "llama4-scout",
         "base_url": "http://ollama-service:11434",
         "temperature": 0.3,
     },
     "dev_fallback": {
         "provider": "ollama",
-        "model": "llama3:8b",
+        "model": "qwen3:8b",
         "base_url": "http://localhost:11434",
     }
 }

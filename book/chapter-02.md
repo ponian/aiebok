@@ -18,6 +18,8 @@
 
 3. **基礎設施無關性**：雖然我們推薦 Kubernetes 作為部署平台，但架構本身不綁定特定基礎設施。Agent 的邏輯與部署方式是解耦的。
 
+> **新興標準參考**：多 Agent 協同領域正逐步形成標準化生態。IETF 的 MACP（Multi-Agent Collaboration Protocol） Internet-Draft 正在定義 Agent 註冊、能力發現與安全交互的規範，與 MCP 互補 — MCP 負責 Agent 與外部資源的數據交換，MACP 負責多 Agent 間的協同編排。Google 主導的 A2A（Agent-to-Agent）協議已捐贈予 Linux Foundation，提供 Agent 間通信的標準化框架，與 MCP 形成互補關係：**MCP 定義 Agent 與工具的交互標準，A2A 定義 Agent 與 Agent 的交互標準**。兩者共同構成完整的 Agent 通訊棧，本書架構設計已預留與這些未來標準接軌的擴展點。
+
 ### 2.1.2 宏觀架構圖
 
 以下是 AI Native Agent Platform 的宏觀架構圖，展示了所有核心組件及其關係：

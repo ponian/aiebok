@@ -334,15 +334,15 @@ AIEBoK 將 AI 系統工程劃分為多個知識領域（Knowledge Areas），涵
 
 假設一家 500 人的企業，每年處理 2,000 個 IT 工單和 1,500 個 HR 請求：
 
-| 項目 | 人工方式 | AI Agent 平台 | 節省 |
+| 項目 | 人工方式 | AI Agent 平台（2026） | 節省 |
 |------|---------|--------------|------|
-| **IT 工單處理** | 2,000 × 45min × $30/hr = $45,000 | 2,000 × 4min × $5/hr（LLM 成本）= $667 | $44,333 |
-| **HR 請求處理** | 1,500 × 30min × $25/hr = $18,750 | 1,500 × 3min × $5/hr = $375 | $18,375 |
-| **平台運營成本** | $0 | ~$1,725/月 × 12 = $20,700 | -$20,700 |
-| **年淨節省** | | | **$42,008** |
-| **ROI** | | | **~110%**（第一年） |
+| **IT 工單處理** | 2,000 × 45min × $35/hr = $52,500 | 2,000 × 3min × $3/hr（LLM 成本）= $300 | $52,200 |
+| **HR 請求處理** | 1,500 × 30min × $28/hr = $21,000 | 1,500 × 2.5min × $3/hr = $188 | $20,812 |
+| **平台運營成本** | $0 | ~$1,500/月 × 12 = $18,000 | -$18,000 |
+| **年淨節省** | | | **$55,012** |
+| **ROI** | | | **~163%**（第一年） |
 
-> 預計第二年 ROI 進一步提升至 ~200%，因為基礎設施成本已攤銷。
+> 預計第二年 ROI 進一步提升至 ~280%，因為基礎設施成本已攤銷且 LLM 推理成本持續下降。
 
 ### 1.6.3 無形價值
 
@@ -442,6 +442,7 @@ AIEBoK 將 AI 系統工程劃分為多個知識領域（Knowledge Areas），涵
 5. **ReAct: Synergizing Reasoning and Acting in Language Models** (Yao et al., 2022) — LLM Agent 的奠基性論文。
 6. **CMU Software Engineering Institute (SEI) AI Engineering** — https://www.sei.cmu.edu/our-work/ai-engineering/ — AIEBoK 的官方資源。
 7. **Anthropic Model Context Protocol (MCP) Documentation** — https://modelcontextprotocol.io/ — MCP 協議的官方規範。
+8. **Multi-Agent Collaboration Protocol (MACP)** — IETF Internet-Draft `draft-li-dmsc-macp-05` (2026) — 新興的多 Agent 協作協議標準，定義 Agent 註冊（ARP）、能力發現（ADP）與安全交互規範。MACP 與 MCP 互補：MCP 偵責 Agent 與外部資源的數據交換，MACP 偵責多 Agent 間的協同編排。
 
 ### 開源專案
 8. **Letta** (https://github.com/letta-ai/letta) — 本書採用的 Agent 框架，提供 Agent 生命週期管理與狀態持久化。

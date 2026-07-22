@@ -993,6 +993,8 @@ class ToolVersionRouter:
 
 MCP Service 是平台的通信中樞，它的穩定性和性能直接影響整個平台的表現。在下一章中，我們將展示如何將這些組件部署到 Kubernetes 雲原生環境。
 
+> **新興標準展望**：多 Agent 協同領域正逐步走向標準化。IETF 的 MACP（Multi-Agent Collaboration Protocol） Internet-Draft 正在定義 Agent 註冊、能力發現與安全交互的規範。未來，本章實現的 MCP Service 可進一步整合 MACP，實現跨組織、跨平台的 Agent 協同能力。
+
 ---
 
 ## 延伸閱讀
