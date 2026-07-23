@@ -36,37 +36,40 @@ sequenceDiagram
 ### 7.1.2 JSON-RPC 消息格式
 
 ```json
-// 請求：調用 IT Agent 創建賬戶
+// === 請求：調用 IT Agent 創建賬戶 ===
+// MCP 通信基於 JSON-RPC 2.0 標準格式
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
+  "jsonrpc": "2.0",                       // 協議版本（固定值）
+  "id": 1,                                 // 請求 ID（用於匹配響應 — 一個 id 對應一個 result）
+  "method": "tools/call",                  // 方法名：工具調用（與 tools/list、resources/read 並列）
   "params": {
-    "name": "create_it_account",
+    "name": "create_it_account",           // 工具名稱（格式：{agent_id}_{tool_name}）
     "arguments": {
-      "employee_name": "張小明",
+      "employee_name": "張小明",            // 工具參數（對應 Pydantic Schema 定義的字段）
       "department": "市場部",
       "role": "產品經理"
     }
   }
 }
 
-// 響應：成功
+// === 響應：成功 ===
+// 成功時 result 包含 content（MCP 標準格式）和 isError 標誌
 {
   "jsonrpc": "2.0",
-  "id": 1,
+  "id": 1,                                 // 同一個 id — 客戶端通過它匹配請求與響應
   "result": {
     "content": [
       {
-        "type": "text",
+        "type": "text",                    // content 是數組，支持多種類型（text、image 等）
         "text": "已成功為張小明創建 IT 賬戶。賬號：zhangxiaoming@company.com，臨時密碼：Temp@123456。請提醒用戶首次登錄後修改密碼。"
       }
     ],
-    "isError": false
+    "isError": false                       // false = 成功；true = 失敗（與 HTTP 狀態碼分離）
   }
 }
 
-// 響應：失敗
+// === 響應：失敗 ===
+// 失敗時 isError=true，text 中包含錯誤原因和錯誤代碼
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -77,10 +80,15 @@ sequenceDiagram
         "text": "賬戶創建失敗：市場部（Marketing）不在 IT Agent 的授權部門列表中。錯誤代碼：DEPT_UNAUTHORIZED"
       }
     ],
-    "isError": true
+    "isError": true                        // MCP 用 isError 標誌失敗，而非 HTTP 狀態碼
   }
 }
 ```
+
+**關鍵設計決策**：
+- **JSON-RPC 2.0 而非 REST**：MCP 選擇 JSON-RPC 而非 REST API，因為工具調用是「動作」（RPC）而非「資源操作」（CRUD）。`tools/call` 是一個 RPC 方法，不需要映射到 HTTP 動詞（GET/POST/PUT/DELETE）。
+- **isError 與 HTTP 200 分離**：即使工具執行失敗，HTTP 響應仍然是 200（因為 MCP 協議本身處理成功/失敗）。這與 REST API 不同 — REST 中 4xx/5xx 表示失敗，而 MCP 用 `isError` 字段。這種分離讓錯誤處理更精細（如「部分成功」場景）。
+- **content 數組格式**：`content` 是一個數組，支持多種類型（text、image、resource）。這為未來擴展預留了空間 — 如 Agent 返回一張圖片（如權限配置截圖），可以用 `{"type": "image", "data": "base64..."}`。
 
 ---
 
@@ -89,6 +97,15 @@ sequenceDiagram
 ### 7.2.1 服務架構
 
 ```python
+"""
+MCP Service 核心實現 —— 企業級 MCP Server 範例
+==========================================================
+職責：
+1. 暴露 /mcp 端點（HTTP + JSON-RPC 2.0）
+2. 管理 Agent Registry（Agent 註冊/註銷）
+3. 處理 4 種核心方法：tools/list, tools/call, resources/read, resources/subscribe
+4. 整合限流（Rate Limiter）和審計日誌（Audit Logger）
+"""
 # mcp_service/app.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -100,38 +117,42 @@ app = FastAPI(title="MCP Service", version="2.0.0")
 logger = logging.getLogger("mcp_service")
 
 
+# ====== 數據模型 ======
 class JSONRPCRequest(BaseModel):
-    jsonrpc: str = "2.0"
-    id: str
-    method: str
-    params: dict = {}
+    """JSON-RPC 2.0 請求 —— 所有 MCP 通信的統一入口格式"""
+    jsonrpc: str = "2.0"                    # 協議版本（固定值）
+    id: str                                 # 請求 ID（客戶端用於匹配響應）
+    method: str                             # 方法名：tools/list, tools/call, resources/read 等
+    params: dict = {}                       # 方法參數（結構由 method 決定）
 
 class JSONRPCResponse(BaseModel):
+    """JSON-RPC 2.0 響應 —— 成功返回 result，失敗返回 error"""
     jsonrpc: str = "2.0"
-    id: str
-    result: Optional[dict] = None
-    error: Optional[dict] = None
+    id: str                                 # 與請求相同的 id
+    result: Optional[dict] = None           # 成功時返回結果
+    error: Optional[dict] = None            # 失敗時返回 {code, message}
 
 
+# ====== MCP Service 核心 ======
 class MCPService:
-    """MCP 服務核心類"""
+    """MCP Server 的核心類 —— 整合 Agent Registry、審計日誌、限流"""
 
     def __init__(self):
-        self.registry = AgentRegistry()
-        self.audit_logger = AuditLogger()
-        self.rate_limiter = RateLimiter()
+        self.registry = AgentRegistry()     # Agent 注册中心：管理所有已註冊的 Agent
+        self.audit_logger = AuditLogger()   # 審計日誌：記錄所有工具調用（合規需求）
+        self.rate_limiter = RateLimiter()   # 限流器：防止 Agent 被過度調用（每個 client_id 獨立計數）
 
     async def handle_request(self, request: JSONRPCRequest) -> JSONRPCResponse:
-        """處理 JSON-RPC 請求"""
-        # 計量計費
+        """統一請求路由 —— 先限流檢查，再按 method 分發到對應處理器"""
+        # 第一道防線：限流 —— 企業場景中防止某個 Agent 消費過多資源
         client_id = request.params.get("_client_id", "unknown")
         if not await self.rate_limiter.check_limit(client_id):
             return JSONRPCResponse(
                 id=request.id,
                 error={"code": -32001, "message": "Rate limit exceeded"}
-            )
+            )  # 自定義錯誤碼：-32001 = 限流（非 JSON-RPC 標準）
 
-        # 方法路由
+        # 方法路由：根據 method 名稱分發到對應處理器
         method = request.method
         if method == "tools/list":
             result = await self.handle_tools_list(request.params)
@@ -145,52 +166,80 @@ class MCPService:
             return JSONRPCResponse(
                 id=request.id,
                 error={"code": -32601, "message": f"Method not found: {method}"}
-            )
+            )  # -32601 = JSON-RPC 標準錯誤碼：Method not found
 
         return JSONRPCResponse(id=request.id, result=result)
 
 
-mcp = MCPService()
+# ====== 全局實例 + HTTP 端點 ======
+mcp = MCPService()                          # 全局單例（生產環境中需要改為 lifespan 管理）
 
 
 @app.post("/mcp")
 async def mcp_endpoint(request: JSONRPCRequest):
-    return await mcp.handle_request(request)
+    """MCP 統一入口 —— 所有 JSON-RPC 請求都通過此端點"""
+    return await mcp.handle_request(request)  # FastAPI 自動序列化為 JSON
 ```
+
+**關鍵設計決策**：
+- **限流放在路由之前**：`rate_limiter.check_limit()` 在方法路由之前執行，確保即使路由邏輯有 bug，限流仍然生效。這是「安全前置」原則 — 防禦層越靠近入口，越難繞過。
+- **限流粒度 = client_id**：每個 Agent（或 CCA）作為獨立的 client_id 進行限流，防止某個 Agent 消耗過多資源。企業場景中，一個失控的 Agent 可能發起數千次 tools/call，影響其他 Agent 的 SLA。
+- **_client_id 在 params 中**：`_client_id` 通過 params 傳遞（帶下劃線前綴表示元數據），而非 HTTP Header。這是因為 MCP 協議是 JSON-RPC over HTTP，客戶端可能不控制 HTTP Header（如通過消息隊列轉發）。
+- **全局單例的局限**：當前 `mcp = MCPService()` 是全局單例，在多進程/多 Pod 場景下需要改為 lifespan 管理（uvicorn 的 --workers 或 Kubernetes 多副本）。審計日誌和限流器需要外置到 Redis（限流）和 Kafka（審計）。
 
 ### 7.2.2 工具發現（tools/list）
 
 ```python
 # mcp_service/tools_list.py
 async def handle_tools_list(self, params: dict) -> dict:
-    """返回所有已註冊的 Agent 工具"""
+    """
+    工具發現 —— 返回所有已註冊 Agent 的工具列表
+    ================================================================
+    CCA 啟動時調用此方法，獲取每個 Agent 能做什麼。
+    CCA 的 LLM 根據返回的工具列表，決定「這個任務應該交給哪個 Agent」。
+    """
     tools = []
 
+    # 遍歷所有已註冊 Agent，展平其工具列表
+    # 結果格式遵循 MCP 標準：每個工具包含 name, description, inputSchema
     for agent in self.registry.get_all_agents():
         for tool in agent.tools:
             tools.append({
+                # 工具命名格式：{agent_id}_{tool_name}
+                # 這確保跨 Agent 工具名唯一（兩個 Agent 不可能有相同的 agent_id）
                 "name": f"{agent.id}_{tool.name}",
-                "description": tool.description,
-                "inputSchema": tool.input_schema,
+                "description": tool.description,       # LLM 用此字段理解工具用途
+                "inputSchema": tool.input_schema,      # JSON Schema（LLM 用此字段生成參數）
                 "annotations": {
-                    "agent_id": agent.id,
-                    "domain": agent.domain,
-                    "avg_response_time_ms": agent.sla.avg_response_time_ms,
-                    "permissions": tool.permissions
+                    # annotations 是 MCP 擴展字段（非標準），
+                    # 用於向 CCA 提供路由決策的元數據
+                    "agent_id": agent.id,              # 哪個 Agent 擁有此工具
+                    "domain": agent.domain,            # 業務域（如 human_resources）
+                    "avg_response_time_ms": agent.sla.avg_response_time_ms,  # SLA 指標
+                    "permissions": tool.permissions    # 權限範圍（如允許查詢的字段）
                 }
             })
 
     return {"tools": tools}
 ```
 
+**關鍵設計決策**：
+- **工具命名 `{agent_id}_{tool_name}`**：跨 Agent 全局唯一命名確保 CCA 的 LLM 不會混淆不同 Agent 的同名工具（如兩 Agent 都有 `query` 工具）。MCP 協議本身不強制命名規則，此格式是企業層面的約定。
+- **`annotations` 企業擴展**：MCP 標準的 `tools/list` 響應只包含 `name`、`description`、`inputSchema`。`annotations` 是非標準擴展，用於向 CCA 提供路由決策的元數據（Agent ID、業務域、SLA、權限）。這比讓 CCA 自行推斷更可靠。
+- **`avg_response_time_ms` SLA 指標**：CCA 可以用此字段做「最快響應」路由——當多個 Agent 有相似能力時，選擇 SLA 更好的 Agent。這類似 CDN 的邊緣節點選擇策略。
+
 返回的工具列表示例：
 
 ```json
+// === tools/list 響應示例 ===
+// CCA 收到此響應後，將工具列表注入 Prompt，讓 LLM 決定路由
 {
   "tools": [
     {
       "name": "hr-agent_query_employee_database",
+      // ↑ 命名格式：{agent_id}_{tool_name}，確保全局唯一
       "description": "從 HR 數據庫查詢員工信息",
+      // ↑ LLM 根據 description 理解工具用途，決定是否路由到此工具
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -198,11 +247,15 @@ async def handle_tools_list(self, params: dict) -> dict:
           "department": {"type": "string", "description": "部門名稱"}
         }
       },
+      // ↑ JSON Schema 格式 —— LLM 根據此定義生成符合要求的參數
       "annotations": {
+        // ↓ annotations 是 CCA 路由決策的關鍵元數據（非 MCP 標準，企業擴展）
         "agent_id": "hr-agent-v1",
         "domain": "human_resources",
         "avg_response_time_ms": 2000,
+        // ↑ SLA 指標 —— CCA 可據此選擇響應更快的 Agent（如多個 Agent 有相似工具）
         "permissions": {"fields": ["name", "department", "role", "email"]}
+        // ↑ 權限範圍 —— 限制此工具能查詢的字段（最小權限原則）
       }
     },
     {
@@ -217,57 +270,73 @@ async def handle_tools_list(self, params: dict) -> dict:
           "role": {"type": "string", "description": "職位角色"}
         },
         "required": ["username", "display_name", "department", "role"]
+        // ↑ required 字段 —— LLM 必須生成這些參數，否則工具調用會失敗
       },
       "annotations": {
         "agent_id": "it-agent-v1",
         "domain": "information_technology",
         "avg_response_time_ms": 3000,
         "permissions": {"allowed_departments": ["市場部", "技術部", "產品部", "行政部"]}
+        // ↑ allowed_departments —— 此工具只能為這些部門創建賬戶（RBAC 權限控制）
       }
     }
   ]
 }
 ```
 
+**關鍵設計決策**：
+- **兩工具的參數差異**：`hr-agent_query_employee_database` 只需 `employee_name` + `department`（查詢），而 `it-agent_create_ad_account` 需要 4 個 `required` 參數（寫入操作需要更多信息）。required 字段的嚴格程度反映了操作的「破壞性」——寫入操作比查詢更謹慎。
+- **`permissions` 差異化設計**：HR 工具的 `fields` 限制可查詢的字段（姓名、部門、角色、邮箱），IT 工具的 `allowed_departments` 限制可操作的部門。兩種權限模型體現了「最小權限原則」的不同維度——數據列級別 vs 業務範圍級別。
+- **SLA 差異**：HR 查詢 2 秒 vs IT 創建 3 秒。CCA 可以在 Prompt 中將 SLA 信息傳遞給用戶（「IT 賬戶創建大約需要 3 秒」），提升用戶體驗的可預期性。
+
 ### 7.2.3 工具調用（tools/call）
 
 ```python
 # mcp_service/tools_call.py
 async def handle_tools_call(self, params: dict) -> dict:
-    """調用指定的 Agent 工具"""
+    """
+    工具調用 —— CCA 通過 MCP 調用 Agent 的具體工具
+    ================================================================
+    流程：解析工具名 → 找到 Agent → 權限檢查 → 調用 → 審計日誌
+    這是 MCP 協議中最核心的方法，所有 Agent 能力都通過此方法暴露。
+    """
     tool_name = params.get("name", "")
     arguments = params.get("arguments", {})
 
-    # 解析工具名稱，找到對應的 Agent
+    # 第一步：解析工具名稱（格式：{agent_id}_{tool_name}）
+    # 例如 "it-agent_create_ad_account" → agent_id="it-agent", tool_name="create_ad_account"
     agent_id, tool_name = self._parse_tool_name(tool_name)
     agent = self.registry.get_agent(agent_id)
 
     if not agent:
         return {
             "content": [{"type": "text", "text": f"未找到 Agent: {agent_id}"}],
-            "isError": True
+            "isError": True                    # MCP 標準格式：content + isError
         }
 
-    # 權限檢查
+    # 第二步：權限檢查 —— 在調用 Agent 之前驗證調用方是否有權限
+    # 這是企業級 MCP 的關鍵差異：不僅驗證工具是否存在，還驗證「誰可以調用」
     if not self._check_permissions(agent, arguments):
         return {
             "content": [{"type": "text", "text": f"權限不足：當前客戶端不允許調用 {tool_name}"}],
             "isError": True
         }
 
-    # 調用 Agent
+    # 第三步：調用 Agent 並計時
     start_time = time.time()
     try:
-        result = await agent.call_tool(tool_name, arguments)
+        result = await agent.call_tool(tool_name, arguments)  # 異步調用（支持長時間運行）
         duration_ms = (time.time() - start_time) * 1000
 
-        # 審計日誌
+        # 第四步：審計日誌 —— 記錄每次工具調用（合規需求 + 效能分析）
+        # 每條記錄包含：誰（agent_id）、做什麼（tool_name）、輸入（arguments）、
+        # 結果（result）、耗時（duration_ms）
         self.audit_logger.log_tool_call(
             agent_id=agent_id,
             tool_name=tool_name,
             arguments=arguments,
             result=result,
-            duration_ms=duration_ms
+            duration_ms=duration_ms          # 效能指標：用於 SLA 監控
         )
 
         return {
@@ -278,9 +347,14 @@ async def handle_tools_call(self, params: dict) -> dict:
         logger.error(f"工具調用失敗: {agent_id}/{tool_name}: {e}")
         return {
             "content": [{"type": "text", "text": f"工具調用失敗: {str(e)}"}],
-            "isError": True
+            "isError": True                    # 失敗時返回錯誤信息（CCA 可據此重試或路由到其他 Agent）
         }
 ```
+
+**關鍵設計決策**：
+- **三層防禦（解析 → 權限 → 調用）**：`_parse_tool_name` 防止工具名注入（如 `../../admin/delete_user`），`_check_permissions` 防止越權調用（如 HR Agent 的工具被 IT Agent 調用）。這種分層設計讓每層職責單一、易於測試。
+- **工具名 = 路由鍵**：`{agent_id}_{tool_name}` 格式將路由信息編碼在工具名中，而非分開傳遞。這簡化了 MCP 協議（一個字段同時承載路由和調用），但也帶來了長度限制問題（Agent ID 不能太長）。
+- **審計日誌的雙重用途**：不僅用於合規（「誰在什麼時候做了什麼」），還用於效能監控（`duration_ms` 可對比 SLA 指標，觸發告警）。審計日誌應寫入 Kafka 而非本地文件，確保高吞吐和持久化。
 
 ---
 
@@ -338,52 +412,68 @@ sequenceDiagram
 ### 7.3.2 CCA 的工具調用邏輯
 
 ```python
+"""
+CCA 工具調用執行器 —— 串行執行工具調用計劃
+==========================================
+CCA 的 LLM 生成的工具調用計劃（有序列表）由本組件執行。
+每次調用都帶 OpenTelemetry Span，實現端到端追蹤。
+"""
 # cca/tool_executor.py
 from opentelemetry import trace
 
 tracer = trace.get_tracer("cca.tool_executor")
 
 class ToolExecutor:
-    """CCA 的工具調用執行器"""
+    """CCA 的工具調用執行器 —— 串行執行工具調用計劃"""
 
     def __init__(self, mcp_client: MCPClient):
-        self.mcp = mcp_client
+        self.mcp = mcp_client                # MCP 客戶端（封裝對 MCP Service 的 HTTP 調用）
 
     async def execute_plan(self, plan: list[ToolCall]) -> list[ToolResult]:
-        """執行工具調用計劃"""
+        """
+        執行工具調用計劃
+        ============================================================
+        plan 是 CCA 的 LLM 生成的有序工具列表。
+        例如：[query_hr, create_it_account, send_notification]
+        
+        當前是串行執行（await），生產環境可改為並行（asyncio.gather），
+        但需要注意工具之間的依賴關係（如「先查詢員工，再創建賬戶」）。
+        """
         results = []
 
         for call in plan:
+            # 每個工具調用創建一個獨立的 Span（OpenTelemetry 追蹤單元）
+            # Span 名稱格式：tool.{工具名}（如 tool.it-agent_create_ad_account）
             with tracer.start_as_current_span(f"tool.{call.tool_name}") as span:
+                # 設置 Span 屬性（用於 Jaeger/Grafana 顯示和搜索）
                 span.set_attribute("tool.name", call.tool_name)
                 span.set_attribute("tool.agent", call.agent_id)
 
-                # 調用 MCP
+                # 通過 MCP 客戶端調用 Agent 的工具
                 result = await self.mcp.call_tool(
                     name=call.tool_name,
                     arguments=call.arguments
                 )
 
-                # 記錄結果到 span
+                # 記錄結果到 Span（成功/失敗 + 耗時）
                 span.set_attribute("tool.success", not result.is_error)
                 span.set_attribute("tool.duration_ms", result.duration_ms)
 
                 results.append(result)
 
-                # 如果某個工具失敗，檢查是否需要降級
+                # 工具失敗時的降級策略：決定是否繼續執行後續工具
                 if result.is_error:
                     should_continue = await self._handle_tool_failure(call, result)
                     if not should_continue:
-                        break
+                        break                # 終止整個計劃（如關鍵工具失敗）
 
         return results
 
     async def _handle_tool_failure(self, call: ToolCall, result: ToolResult) -> bool:
-        """處理工具調用失敗"""
-        # 記錄失敗
+        """處理工具調用失敗 —— 返回 True = 繼續執行，False = 終止計劃"""
         logger.warning(f"工具調用失敗: {call.tool_name}: {result.error}")
 
-        # 檢查是否有降級方案
+        # 檢查是否有降級方案（fallback tool）
         fallback = self._get_fallback(call.tool_name)
         if fallback:
             logger.info(f"使用降級方案: {fallback.name}")
@@ -391,10 +481,15 @@ class ToolExecutor:
                 name=fallback.name,
                 arguments=call.arguments
             )
-            return True
+            return True                     # 降級成功，繼續執行後續工具
 
-        return False
+        return False                        # 無降級方案，終止整個計劃
 ```
+
+**關鍵設計決策**：
+- **串行 vs 並行執行**：當前 `for call in plan` 是串行執行，簡單可靠但延遲累加。改為 `asyncio.gather` 並行可大幅降低延遲，但需要處理工具間的依賴關係（如工具 B 的參數來自工具 A 的結果）。建議初期保持串行，待 SLA 分析後再優化。
+- **降級（Fallback）策略**：`_get_fallback` 查找替代工具（如 `create_ad_account` 失敗時嘗試 `create_ad_account_v2`），而非直接失敗。這提高了整體成功率，但降級工具的行為可能不完全等價（如 v2 支持 MFA 但 v1 不支持），需要在 SLA 中明確定義。
+- **Span 屬性設計**：`tool.name`、`tool.agent`、`tool.success`、`tool.duration_ms` 四個屬性足以在 Jaeger 中按工具名/Agent/成敗/延遲篩選和排序，滿足 90% 的排錯需求。
 
 ---
 
@@ -412,6 +507,19 @@ class ToolExecutor:
 ### 7.4.2 NATS JetStream 集成
 
 ```python
+"""
+MCP 消息隊列 —— 基於 NATS JetStream 的異步通信
+==========================================================
+職責：
+1. 發布工具調用請求（CCA → Agent 方向）
+2. 訂閱工具調用請求（Agent 端接收）
+3. 回覆結果（Agent → CCA 方向）
+4. 消息持久化（JetStream Stream + File Storage）
+
+NATS JetStream vs 普通 NATS：
+- 普通 NATS：「發後即忘」，消息不持久化，消費者離線時消息丟失
+- JetStream：消息持久化到磁盤，支持消費者離線後重新消費（ack 機制）
+"""
 # mcp_service/message_queue.py
 import nats
 import json
@@ -421,58 +529,84 @@ class MCPMessageQueue:
     """基於 NATS JetStream 的 MCP 消息隊列"""
 
     def __init__(self, nats_url: str = "nats://nats.nats:4222"):
-        self.nc = None
-        self.js = None
+        self.nc = None                      # NATS 連接（底層 TCP 連接）
+        self.js = None                      # JetStream 上下文（持久化消息的 API 入口）
         self.nats_url = nats_url
 
     async def connect(self):
+        """連接 NATS 並創建 Stream"""
         self.nc = await nats.connect(self.nats_url)
         self.js = self.nc.jetstream()
 
-        # 創建 Stream
+        # 創建 Request Stream（CCA → Agent 方向）
+        # Subject 通配符 "mcp.>" 匹配所有以 mcp. 開頭的消息
+        # 例如：mcp.it-agent.create_ad_account、mcp.hr-agent.query_employee
         await self.js.add_stream(
             name="mcp_requests",
-            subjects=["mcp.>"],
-            retention="limits",
-            max_msgs=1000000,
-            storage="file"
+            subjects=["mcp.>"],             # ">" 是 NATS 通配符（匹配一級或多級）
+            retention="limits",             # 保留策略：limits = 按數量/大小限制
+            max_msgs=1000000,               # 最多保留 100 萬條消息
+            storage="file"                  # 文件持久化（vs memory：重啟後消息不丟失）
         )
 
+        # 創建 Response Stream（Agent → CCA 方向）
         await self.js.add_stream(
             name="mcp_responses",
-            subjects=["mcp.response.>"],
+            subjects=["mcp.response.>"],    # 響應消息使用 response. 子域（避免與請求衝突）
             retention="limits",
             max_msgs=1000000,
             storage="file"
         )
 
     async def publish_tool_call(self, agent_id: str, tool_name: str, arguments: dict) -> str:
-        """發布工具調用請求"""
-        request_id = str(uuid.uuid4())
+        """
+        發布工具調用請求（CCA → Agent 方向）
+        ============================================================
+        Subject 格式：mcp.{agent_id}.{tool_name}
+        例如：mcp.it-agent.create_ad_account
+        
+        返回 request_id（用於後續等待響應時匹配）。
+        """
+        request_id = str(uuid.uuid4())      # 全局唯一 ID（UUID v4，概率碰撞 ≈ 0）
         subject = f"mcp.{agent_id}.{tool_name}"
 
         message = {
-            "request_id": request_id,
+            "request_id": request_id,       # 用於匹配響應（一個 request 對應一個 response）
             "tool_name": tool_name,
             "arguments": arguments,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat()  # ISO 8601 格式（便於日誌分析）
         }
 
-        await self.js.publish(subject, json.dumps(message).encode())
+        await self.js.publish(subject, json.dumps(message).encode())  # bytes 格式（NATS 要求）
         return request_id
 
     async def subscribe_to_tool_calls(self, agent_id: str, handler):
-        """訂閱工具調用請求"""
+        """
+        訂閱工具調用請求（Agent 端接收）
+        ============================================================
+        Agent 啟動時調用此方法，開始監聽屬於自己的工具調用。
+        Subject 通配符：mcp.{agent_id}.> 匹配所有工具調用。
+        
+        收到消息後調用 handler 處理，結果通過 msg.reply() 回覆。
+        NATS 的 reply 機制自動路由到發送方的 reply subject。
+        """
         subject = f"mcp.{agent_id}.>"
 
         async def message_handler(msg):
-            data = json.loads(msg.data.decode())
-            result = await handler(data)
-            # 回覆結果
+            data = json.loads(msg.data.decode())  # 反序列化 JSON 消息
+            result = await handler(data)           # 調用 Agent 的工具處理器
+
+            # 通過 NATS 內建的 reply 機制回覆結果
+            # 這比單獨發布到 response stream 更簡單（NATS 自動路由）
             await msg.reply(json.dumps(result).encode())
 
-        await self.js.subscribe(subject, cb=message_handler)
+        await self.js.subscribe(subject, cb=message_handler)  # cb = 回調函數
 ```
+
+**關鍵設計決策**：
+- **Request/Response 分離的 Stream**：`mcp_requests` 和 `mcp_responses` 是兩個獨立的 Stream。這避免了請求和響應消息在同一流中混雜，也便於分別配置保留策略（如響應消息保留更久用於審計）。
+- **NATS Subject 通配符路由**：`mcp.>` 通配符讓 Agent 只需訂閱 `mcp.{自己的ID}.>` 就能收到所有屬於自己的工具調用，無需為每個工具單獨訂閱。這簡化了 Agent 的啟動配置。
+- **msg.reply() vs 獨立 publish**：Agent 用 `msg.reply()` 回覆而非 `publish` 到 response stream。`reply()` 更簡單（NATS 自動路由），但缺點是回覆者不知道回覆是否到達（無 ack）。生產環境建議改為 publish 到 response stream + request_id 匹配。
 
 ---
 
@@ -481,74 +615,116 @@ class MCPMessageQueue:
 ### 7.5.1 OpenTelemetry Span 設計
 
 ```python
+"""
+MCP OpenTelemetry 追蹤 —— 為每次工具調用和 Agent 調用創建 Span
+==========================================================
+Span 層次結構（示例）：
+  mcp.tool.it-agent_create_ad_account        ← 工具調用 Span（CCA 視角）
+    mcp.agent.it-agent-v1.execute            ← Agent 執行 Span（Agent 視角）
+      db.query SELECT * FROM users            ← 數據庫查詢 Span
+"""
 # mcp_service/otel_integration.py
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+# 初始化 TracerProvider —— 全局唯一，負責收集和導出所有 Span
 tracer_provider = TracerProvider()
+# BatchSpanProcessor 批量導出 Span（而非逐條），降低對性能的影響
 tracer_provider.add_span_processor(BatchSpanProcessor(OTLPExporter()))
+# OTLPExporter 將 Span 導出到 Jaeger/Tempo（通過 OTLP 協議）
 trace.set_tracer_provider(tracer_provider)
 
-tracer = trace.get_tracer("mcp-service")
+tracer = trace.get_tracer("mcp-service")    # Tracer 名稱（在 Jaeger 中顯示為 Service Name）
 
 
 class MCPTracer:
-    """MCP 服務的 OpenTelemetry 跟蹤"""
+    """MCP 服務的 OpenTelemetry 追蹤 —— 封裝 Span 創建邏輯"""
 
     @staticmethod
     def trace_tool_call(tool_name: str, agent_id: str):
-        """跟蹤工具調用"""
+        """
+        跟蹤工具調用 —— 創建 Span 並設置屬性
+        ============================================================
+        Span 名稱格式：mcp.tool.{工具名}
+        屬性用於 Jaeger 顯示和搜索（如按 agent_id 篩選）。
+        """
         return tracer.start_as_current_span(
             f"mcp.tool.{tool_name}",
             attributes={
-                "mcp.tool.name": tool_name,
-                "mcp.agent.id": agent_id,
-                "mcp.protocol": "json-rpc-2.0"
+                "mcp.tool.name": tool_name,         # 工具名稱（如 it-agent_create_ad_account）
+                "mcp.agent.id": agent_id,            # Agent ID（如 it-agent-v1）
+                "mcp.protocol": "json-rpc-2.0"       # 協議版本（便於區分不同通信方式）
             }
         )
 
     @staticmethod
     def trace_agent_call(agent_id: str, operation: str):
-        """跟蹤 Agent 調用"""
+        """
+        跟蹤 Agent 調用 —— 創建子 Span
+        ============================================================
+        Span 名稱格式：mcp.agent.{agent_id}.{operation}
+        嵌套在 trace_tool_call 的 Span 內部（形成父子關係）。
+        """
         return tracer.start_as_current_span(
             f"mcp.agent.{agent_id}.{operation}",
             attributes={
-                "mcp.agent.id": agent_id,
-                "mcp.operation": operation
+                "mcp.agent.id": agent_id,            # Agent ID
+                "mcp.operation": operation            # 操作類型（如 execute、query）
             }
         )
 ```
 
+**關鍵設計決策**：
+- **Span 命名層次**：`mcp.tool.{tool_name}`（MCP 層）→ `mcp.agent.{agent_id}.{operation}`（Agent 層）→ 數據庫 Span（基礎設施層）。這種命名層次讓 Jaeger 的 Span 樹自然反映請求流向，無需額外配置。
+- **BatchSpanProcessor**：批量導出 Span（而非逐條），減少網絡開銷。默認批量大小 2048 條，超時 5 秒。在高吞吐場景下，批量導出可降低 90% 的導出開銷。
+- **屬性命名約定**：`mcp.` 前綴區分 MCP 層屬性與 Agent 層屬性（如 `mcp.tool.name` vs `agent.tool.name`）。這避免了屬性名衝突，也便於 Jaeger 中按前綴篩選。
+
 ### 7.5.2 指標收集
 
 ```python
+"""
+MCP 指標收集 —— 三個核心指標覆蓋工具調用的數量、延遲、活躍連接
+================================================================
+這三個指標是最小可用的 MCP 監控集：
+- 調用次數（counter）：按工具名/Agent/狀態分組 → 告警規則：錯誤率 > 5%
+- 調用延遲（histogram）：計算 P50/P95/P99 → 告警規則：P95 > SLA 閾值
+- 活躍連接（up_down_counter）：實時連接數 → 告警規則：連接數 > Pod 限制
+"""
 # mcp_service/metrics.py
 from opentelemetry.metrics import get_meter
 
-meter = get_meter("mcp-service")
+meter = get_meter("mcp-service")            # Meter 名稱（在 Prometheus 中顯示為指標前綴）
 
-# 工具調用計數
+# 調用次數計數器 —— 只增不減（monotonic counter）
+# 標籤（labels）：tool_name, agent_id, status（success/failure）
 tool_call_counter = meter.create_counter(
-    "mcp.tool.calls",
+    "mcp.tool.calls",                       # Prometheus 指標名：mcp_tool_calls_total
     description="MCP 工具調用次數",
-    unit="1"
+    unit="1"                                # 單位：次數（計數器單位為 "1"）
 )
 
-# 工具調用延遲
+# 調用延遲直方圖 —— 自動計算 P50/P95/P99 分位數
+# 分桶（buckets）：默認 [5, 10, 25, 50, 100, 250, 500, 1000] ms
 tool_call_histogram = meter.create_histogram(
-    "mcp.tool.duration",
+    "mcp.tool.duration",                    # Prometheus 指標名：mcp_tool_duration_milliseconds
     description="MCP 工具調用延遲",
-    unit="ms"
+    unit="ms"                               # 單位：毫秒
 )
 
-# 併發連接數
+# 活躍連接數 —— 可增可減（up_down_counter）
+# 增：新連接建立時 +1；減：連接關閉時 -1
 active_connections = meter.create_up_down_counter(
-    "mcp.connections.active",
+    "mcp.connections.active",               # Prometheus 指標名：mcp_connections_active
     description="MCP 服務活躍連接數",
-    unit="1"
+    unit="1"                                # 單位：連接數
 )
 ```
+
+**關鍵設計決策**：
+- **Counter vs Histogram vs UpDownCounter**：三種指標類型各有用途 — Counter 用於累計數量（如總請求數），Histogram 用於分佈（如延遲分位數），UpDownCounter 用於瞬時值（如活躍連接）。選擇錯誤會導致 Prometheus 查詢困難（如用 Histogram 計算總數會很慢）。
+- **標籤設計（Labels）**：`tool_name`、`agent_id`、`status` 三個標籤足以覆蓋 90% 的查詢場景（如「IT Agent 的 create_ad_account 工具錯誤率是多少？」）。標籤值不能過多（>1000 會導致 Prometheus 內存爆炸），需要定期審計標籤基數。
+- **Prometheus 指標命名約定**：`mcp.tool.calls` 在 Prometheus 中會變成 `mcp_tool_calls_total`（dots → underscores，自動加 `_total` 後綴）。這遵循 Prometheus 命名規範。
 
 ---
 
@@ -557,38 +733,69 @@ active_connections = meter.create_up_down_counter(
 ### 7.6.1 認證與授權
 
 ```python
+"""
+MCP 認證與授權中間件 —— 企業級安全的第一道防線
+==============================================
+職責：
+1. 認證（Authentication）：驗證「你是誰」（API Key 驗證）
+2. 授權（Authorization）：驗證「你能做什麼」（Agent 級別 RBAC）
+3. 機密管理：API Key 從 Vault 讀取（非硬編碼）
+"""
 # mcp_service/auth.py
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer
 
-security = HTTPBearer()
+security = HTTPBearer()                     # FastAPI 內建的 Bearer Token 提取器
+                                            # 自動從 Authorization: Bearer <token> 提取
 
 class MCPAuthMiddleware:
-    """MCP 服務認證中間件"""
+    """MCP 服務認證中間件 —— 整合 Vault + RBAC"""
 
     def __init__(self):
+        # API Key 從 HashiCorp Vault 讀取（非硬編碼在代碼或環境變數中）
+        # Vault 提供：版本控制、自動輪換、審計日誌、最小權限訪問
         self.api_keys = load_api_keys_from_vault()
 
     async def authenticate(self, token: str = Depends(security)):
-        """驗證 API Key"""
-        api_key = token.credentials
+        """
+        認證 —— 驗證 API Key 有效性
+        ============================================================
+        通過 FastAPI Depends 自動注入：請求到達 → 提取 Bearer Token → 驗證
+        
+        返回客戶端信息（含允許訪問的 Agent 列表），供後續 authorize 使用。
+        """
+        api_key = token.credentials           # HTTPBearer 提取的原始 token
 
         if api_key not in self.api_keys:
             raise HTTPException(status_code=401, detail="Invalid API key")
+            # 401 Unauthorized —— 不泄露「Key 是否存在」的信息（防暴力破解）
 
         client_info = self.api_keys[api_key]
         return {
-            "client_id": client_info["client_id"],
-            "client_name": client_info["client_name"],
-            "allowed_agents": client_info["allowed_agents"],
-            "rate_limit": client_info["rate_limit"]
+            "client_id": client_info["client_id"],           # 客戶端唯一標識
+            "client_name": client_info["client_name"],       # 人類可讀名稱（用於日誌）
+            "allowed_agents": client_info["allowed_agents"], # RBAC：允許訪問的 Agent 列表
+            "rate_limit": client_info["rate_limit"]          # 每個客戶端的限流閾值
         }
 
     async def authorize(self, client: dict, tool_name: str) -> bool:
-        """檢查客戶端是否有權限調用指定工具"""
+        """
+        授權 —— 檢查客戶端是否有權限調用指定工具
+        ============================================================
+        授權粒度：Agent 級別（非工具級別）
+        例如：允許訪問 "it-agent" → 可調用 it-agent 的所有工具
+        
+        tool_name 格式：{agent_id}_{tool_name}
+        通過 split("_")[0] 提取 agent_id（注意：此實現假設 agent_id 不含下劃線）
+        """
         agent_id = tool_name.split("_")[0]
-        return agent_id in client["allowed_agents"]
+        return agent_id in client["allowed_agents"]  # O(1) 查找（set）
 ```
+
+**關鍵設計決策**：
+- **Vault 而非環境變數**：API Key 存儲在 HashiCorp Vault 中，好處是：(1) 版本控制 — 可回滾到舊 Key；(2) 自動輪換 — 設定 TTL 後自動過期；(3) 審計日誌 — 每次讀取都有記錄；(4) 最小權限 — 不同服務只能讀取自己需要的 Key。
+- **認證與授權分離**：`authenticate`（你是誰）和 `authorize`（你能做什麼）是兩個獨立步驟。這允許同一個客戶端有不同的授權範圍（如 CCA 可以訪問所有 Agent，而 HR Agent 只能訪問 HR 相關工具）。
+- **Agent 級別而非工具級別授權**：授權粒度是 Agent（如 "it-agent"）而非單個工具。這簡化了管理（不需要為每個工具配置權限），但也意味著允許訪問某個 Agent 就能調用它的所有工具（包括高權限工具如 delete_user）。
 
 ---
 
@@ -601,6 +808,15 @@ LLM 工具調用通常耗時較長（3-30 秒）。使用 SSE（Server-Sent Even
 ### 7.7.2 SSE 端點實現
 
 ```python
+"""
+MCP SSE 串流端點 —— 讓 CCA 即時獲取工具執行進度
+==========================================================
+SSE（Server-Sent Events）vs WebSocket：
+- SSE：單向（Server → Client），基於 HTTP，簡單可靠，適合進度通知
+- WebSocket：雙向，需要額外協議升級，適合聊天場景
+
+MCP 選擇 SSE 的原因：工具調用是「請求-進度-結果」模式，不需要雙向通信。
+"""
 # mcp_service/sse_handler.py
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
@@ -613,95 +829,137 @@ app = FastAPI()
 
 @app.post("/mcp/stream")
 async def mcp_stream_endpoint(request: Request):
-    """MCP SSE 串流端點"""
+    """
+    MCP SSE 串流端點 —— 返回 SSE 事件流（而非一次性 JSON 響應）
+    ============================================================
+    事件流程：started → dispatched → progress* → completed/error → done
+    CCA 可以在任何時刻切斷連接（如超時），Agent 繼續執行但結果被丟棄。
+    """
     body = await request.json()
-    request_id = str(uuid.uuid4())
+    request_id = str(uuid.uuid4())          # 全局唯一 ID（用於日誌追蹤和客戶端匹配）
     tool_name = body.get("name", "")
     arguments = body.get("arguments", {})
 
     async def event_generator():
-        """生成 SSE 事件流"""
-        # 1. 開始事件
+        """
+        SSE 事件生成器 —— yield 每個事件為 SSE 格式
+        ============================================================
+        SSE 格式：data: {JSON}\n\n
+        每個事件包含 type 字段（started/dispatched/progress/completed/error/done）
+        """
+        # 事件 1：開始 —— 告訴 CCA「我收到請求了」
         yield f"data: {json.dumps({'type': 'started', 'request_id': request_id, 'tool': tool_name})}\n\n"
 
-        # 2. 解析工具名稱，找到 Agent
+        # 解析工具名稱，找到對應的 Agent
         agent_id, tool = _parse_tool_name(tool_name)
         agent = registry.get_agent(agent_id)
 
         if not agent:
             yield f"data: {json.dumps({'type': 'error', 'error': f'Agent not found: {agent_id}'})}\n\n"
-            return
+            return                          # 早返回：避免後續代碼執行
 
-        # 3. 發布工具調用到 NATS
+        # 事件 2：已分發 —— 工具調用已發送到 NATS（異步，不等結果）
         nats_request_id = await mq.publish_tool_call(agent_id, tool, arguments)
         yield f"data: {json.dumps({'type': 'dispatched', 'nats_request_id': nats_request_id})}\n\n"
 
-        # 4. 等待回覆（帶超時）
+        # 等待 Agent 回覆（帶 60 秒超時）
         try:
             response = await asyncio.wait_for(
                 mq.wait_for_response(nats_request_id),
-                timeout=60.0
+                timeout=60.0                # 防止 Agent 無響應導致連接永久佔用
             )
 
-            # 5. 進度事件
+            # 事件 3：進度（可選）—— Agent 可以發送中間進度
             if "progress" in response:
                 yield f"data: {json.dumps({'type': 'progress', 'data': response['progress']})}\n\n"
 
-            # 6. 完成事件
+            # 事件 4：完成 —— 工具執行成功
             yield f"data: {json.dumps({'type': 'completed', 'result': response['result']})}\n\n"
 
         except asyncio.TimeoutError:
+            # 事件 4'：超時錯誤 —— 60 秒內 Agent 未回覆
             yield f"data: {json.dumps({'type': 'error', 'error': 'Tool call timeout after 60s'})}\n\n"
 
-        # 7. 結束事件
+        # 事件 5：結束 —— 無論成功或失敗，都發送 done 事件
         yield f"data: {json.dumps({'type': 'done', 'request_id': request_id})}\n\n"
 
     return StreamingResponse(
         event_generator(),
-        media_type="text/event-stream",
+        media_type="text/event-stream",    # SSE 標準 MIME 類型
         headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # 禁用 Nginx 緩衝
+            "Cache-Control": "no-cache",    # 禁用緩存（SSE 必須）
+            "Connection": "keep-alive",     # 保持 TCP 連接（SSE 必須）
+            "X-Accel-Buffering": "no"       # 禁用 Nginx 緩衝（否則事件會被批量發送）
         }
     )
 ```
 
+**關鍵設計決策**：
+- **事件類型設計（6 種）**：`started`（收到）→ `dispatched`（已分發）→ `progress`（進度）→ `completed`/`error`（結果）→ `done`（結束）。這種分層事件讓 CCA 能精確追蹤每個階段，而非只看到最終結果。
+- **Nginx X-Accel-Buffering**：默認 Nginx 會緩衝 SSE 響應（等待攒夠一定數據再發送），導致事件延遲。`X-Accel-Buffering: no` 強制 Nginx 逐條轉發，確保事件即時到達 CCA。
+- **60 秒超時**：`asyncio.wait_for(timeout=60.0)` 防止 Agent 無響應時連接永久佔用。超時後返回 error 事件，CCA 可據此重試或降級。
+
 ### 7.7.3 CCA 端 SSE 消費
 
 ```python
-# cca/mcp_sse_client.py
+# cca/mcp_sse_client.py —— CCA 端的 MCP SSE 客戶端
+# ================================================================
+# 與 7.7.2 的 SSE Server 配對使用。CCA 透過此客戶端即時接收工具進度，
+# 而非傳統的「發送請求 → 阻塞等待 → 拿到結果」。
 import httpx
 import json
 
-class MCPSSEClient:
-    """CCA 的 SSE 客戶端"""
 
-    async def call_tool_streaming(self, tool_name: str, arguments: dict) -> AsyncGenerator[dict, None]:
-        """串流調用 MCP 工具"""
+class MCPSSEClient:
+    """
+    CCA 的 SSE 客戶端 —— 串流消費 MCP 工具調用事件
+    ================================================================
+    與普通 HTTP 客戶端的關鍵區別：
+    - 普通：response = await client.post(url)  # 一次性拿到完整結果
+    - SSE：async for event in client.stream(url)  # 逐個事件接收
+    """
+
+    async def call_tool_streaming(
+        self, tool_name: str, arguments: dict
+    ) -> AsyncGenerator[dict, None]:
+        """
+        串流調用 MCP 工具 —— yield 每個 SSE 事件
+        ============================================================
+        使用 httpx 的 stream() 而非 post()，建立持久 HTTP 連接。
+        連接保持開放，直到 Server 發送「done」事件或超時。
+        """
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
-                f"{self.mcp_url}/mcp/stream",
+                f"{self.mcp_url}/mcp/stream",     # 對應 7.7.2 的 /mcp/stream 端點
                 json={"name": tool_name, "arguments": arguments},
-                timeout=60.0
+                timeout=60.0                        # 與 Server 端超時對齊
             ) as response:
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
-                        event = json.loads(line[6:])
+                        # SSE 協議格式：每行 "data: {JSON}\n\n"
+                        event = json.loads(line[6:])   # 去掉 "data: " 前綴（6 字元）
                         yield event
 
-    async def execute_tool_with_progress(self, tool_name: str, arguments: dict) -> dict:
-        """執行工具並追蹤進度"""
+    async def execute_tool_with_progress(
+        self, tool_name: str, arguments: dict
+    ) -> dict:
+        """
+        執行工具並追蹤進度 —— 將 SSE 事件映射到 OpenTelemetry Span
+        ============================================================
+        核心價值：CCA 不只知道「工具成功/失敗」，還能看到「進度百分比」。
+        這讓 CCA 可以在進度卡住時做出決策（如提示用戶等待、觸發超時）。
+        """
         with tracer.start_as_current_span(f"tool.{tool_name}") as span:
             final_result = None
 
             async for event in self.call_tool_streaming(tool_name, arguments):
                 if event["type"] == "started":
+                    # 將 MCP request_id 記錄到 Span（用於跨系統日誌關聯）
                     span.set_attribute("mcp.request_id", event["request_id"])
 
                 elif event["type"] == "progress":
-                    # 更新 Span 進度
+                    # 將進度信息作為 Span Event 記錄（不覆蓋 Span 狀態）
                     span.add_event("tool.progress", {"data": str(event["data"])})
 
                 elif event["type"] == "completed":
@@ -709,12 +967,18 @@ class MCPSSEClient:
                     span.set_attribute("tool.success", True)
 
                 elif event["type"] == "error":
+                    # 提前返回：error 後 Server 會發 done，但我們不需要再等
                     span.set_attribute("tool.success", False)
                     span.set_attribute("tool.error", event["error"])
                     return {"error": event["error"], "isError": True}
 
             return final_result or {"error": "No result received", "isError": True}
 ```
+
+**關鍵設計決策**：
+- **httpx `stream()` vs `post()`**：`post()` 會緩衝整個響應體再返回，SSE 事件全部堆在內存裡；`stream()` 建立持久連接，逐行讀取（`aiter_lines()`），記憶體佔用恆定為 O(1)。
+- **SSE 事件到 OTel Span 的映射**：`started` → 設置 Span 屬性、`progress` → 添加 Span Event、`completed`/`error` → 設置 Span 狀態。這種映射讓 SSE 進度可被 Grafana 可視化，CCA 的工具調用延遲一目了然。
+- **提前返回策略**：收到 `error` 事件後立即返回，不等 `done` 事件。因為 Server 端的 `done` 是格式完整性保證（確保 SSE 流正確關閉），對 CCA 業務邏輯無意義。
 
 ---
 
@@ -723,46 +987,68 @@ class MCPSSEClient:
 ### 7.8.1 熔斷器實現
 
 ```python
-# mcp_service/circuit_breaker.py
+# mcp_service/circuit_breaker.py —— 熔斷器核心實現
+# ================================================================
+# 三態模型：CLOSED（正常）→ OPEN（熔斷）→ HALF_OPEN（嘗試恢復）
+# 原理：連續失敗超過閾值 → 切斷請求（快速失敗）→ 冷卻後嘗試少量請求 → 成功則恢復
+# 這比「每次重試都打到 Agent」更高效：避免無效重試消耗 Agent 資源和網路帶寬。
 import asyncio
 import time
 from enum import Enum
 
+
 class CircuitState(Enum):
-    CLOSED = "closed"      # 正常運行
-    OPEN = "open"          # 熔斷中
-    HALF_OPEN = "half_open"  # 嘗試恢復
+    CLOSED = "closed"          # 正常運行：所有請求直接通過
+    OPEN = "open"              # 熔斷中：所有請求直接拒絕（快速失敗）
+    HALF_OPEN = "half_open"    # 嘗試恢復：允許有限數量的試探性請求
 
 
 class CircuitBreaker:
-    """熔斷器：防止失敗的 Agent 調用拖垮整體系統"""
+    """
+    熔斷器：防止失敗的 Agent 調用拖垮整體系統
+    ================================================================
+    核心參數：
+    - failure_threshold: 5 次連續失敗觸發熔斷（容忍偶發錯誤）
+    - recovery_timeout: 30 秒後嘗試恢復（給 Agent 足夠重啟時間）
+    - half_open_max_calls: 3 次試探性調用（驗證 Agent 是否真的恢復）
+    """
 
     def __init__(
         self,
         agent_id: str,
-        failure_threshold: int = 5,
-        recovery_timeout: float = 30.0,
-        half_open_max_calls: int = 3
+        failure_threshold: int = 5,       # 觸發熔斷的連續失敗次數
+        recovery_timeout: float = 30.0,   # 熔斷後等待恢復的秒數
+        half_open_max_calls: int = 3      # HALF_OPEN 階段的試探性調用次數
     ):
         self.agent_id = agent_id
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.half_open_max_calls = half_open_max_calls
 
-        self.state = CircuitState.CLOSED
-        self.failure_count = 0
-        self.success_count = 0
-        self.last_failure_time = 0.0
-        self.half_open_calls = 0
+        self.state = CircuitState.CLOSED          # 初始狀態：正常運行
+        self.failure_count = 0                     # 連續失敗計數（CLOSED 時累計）
+        self.success_count = 0                     # HALF_OPEN 時的成功計數
+        self.last_failure_time = 0.0               # 上次失敗時間戳（判斷冷卻期）
+        self.half_open_calls = 0                   # HALF_OPEN 已發出的試探次數
 
     async def call(self, func, *args, **kwargs):
-        """通過熔斷器執行調用"""
+        """
+        通過熔斷器執行調用 —— 狀態機在此
+        ============================================================
+        CLOSED → 正常執行
+        OPEN → 先判斷冷卻期是否已過：
+            已過 → 進入 HALF_OPEN（允許試探）
+            未過 → 直接拋異常（快速失敗，不浪費網路資源）
+        HALF_OPEN → 檢查試探次數上限，未滿才允許執行
+        """
         if self.state == CircuitState.OPEN:
             if time.time() - self.last_failure_time > self.recovery_timeout:
+                # 冷卻期已過：嘗試恢復
                 self.state = CircuitState.HALF_OPEN
                 self.half_open_calls = 0
                 logger.info(f"Circuit breaker {self.agent_id}: OPEN → HALF_OPEN")
             else:
+                # 冷卻期未過：快速失敗（毫秒級響應，不打到 Agent）
                 raise CircuitBreakerOpenError(
                     f"Circuit breaker OPEN for {self.agent_id}. "
                     f"Retry after {self.recovery_timeout}s"
@@ -784,24 +1070,30 @@ class CircuitBreaker:
             raise
 
     def _on_success(self):
+        """成功回調 —— HALF_OPEN 時累計成功，CLOSED 時重置失敗計數"""
         if self.state == CircuitState.HALF_OPEN:
             self.success_count += 1
             if self.success_count >= self.half_open_max_calls:
+                # 恐怖谷測試通過：Agent 真的恢復了
                 self.state = CircuitState.CLOSED
                 self.failure_count = 0
                 self.success_count = 0
                 logger.info(f"Circuit breaker {self.agent_id}: HALF_OPEN → CLOSED")
         else:
+            # CLOSED 時每次成功都重置計數（滑動窗口語義）
             self.failure_count = 0
 
     def _on_failure(self):
+        """失敗回調 —— 累計失敗計數，達到閾值觸發熔斷"""
         self.failure_count += 1
         self.last_failure_time = time.time()
 
         if self.state == CircuitState.HALF_OPEN:
+            # 試探失敗：立即回 OPEN（不等下次失敗）
             self.state = CircuitState.OPEN
             logger.warning(f"Circuit breaker {self.agent_id}: HALF_OPEN → OPEN")
         elif self.failure_count >= self.failure_threshold:
+            # CLOSED 累計失敗達閾值：觸發熔斷
             self.state = CircuitState.OPEN
             logger.warning(
                 f"Circuit breaker {self.agent_id}: CLOSED → OPEN "
@@ -810,28 +1102,55 @@ class CircuitBreaker:
 
 
 class CircuitBreakerOpenError(Exception):
+    """熔斷器開啟異常 —— 調用方應捕獲此異常進行降級處理"""
     pass
 ```
+
+**關鍵設計決策**：
+- **三態而非二態**：缺少 `HALF_OPEN` 的二態熔斷器在恢復時只能「全量恢復」或「永遠熔斷」。`HALF_OPEN` 允許有限試探（3 次），兼顧恢復速度和安全驗證。這是 Michael Nygard《Release It!》中的經典模式。
+- **`_on_success` 在 CLOSED 時重置計數**：這實現了「滑動窗口」語義——只要有一段穩定成功期，之前的失敗計數歸零。避免「第 1 次失敗 → 第 100 次成功 → 第 2 次失敗就熔斷」的錯誤行為。
+- **HALF_OPEN 失敗立即回 OPEN**：試探性調用一旦失敗，不需要再等 5 次才熔斷。因為試探本身已經代表「嘗試恢復」的決策，失敗就意味著恢復判斷有誤。
+- **`CircuitBreakerOpenError` 帶重試等待時間**：異常消息包含 `Retry after 30s`，讓上層（CCA）可以構建「稍後重試」的用戶提示，而非籠統的「服務不可用」。
 
 ### 7.8.2 熔斷器在 MCP Service 中的使用
 
 ```python
-# mcp_service/breaker_integration.py
+# mcp_service/breaker_integration.py —— 將熔斷器融入 MCP Service 的實際調用路徑
+# ================================================================
+# 核心思想：每個 Agent 一個獨立的 CircuitBreaker 實例。
+# 這意味著 hr-agent 宕機不會影響 it-agent 的工具調用。
+# 這是「故障隔離」的具體實現——微服務架構的黃金法則。
 class MCPServiceWithBreaker:
     def __init__(self):
-        self.breakers: dict[str, CircuitBreaker] = {}
+        self.breakers: dict[str, CircuitBreaker] = {}  # agent_id → 獨立熔斷器
         self.registry = AgentRegistry()
 
     def get_breaker(self, agent_id: str) -> CircuitBreaker:
+        """
+        惰性初始化熔斷器 —— 只在第一次調用時創建
+        ============================================================
+        為什麼不用 __init__ 批量創建？
+        因為 Agent 可能動態上下線，預先創建所有 Agent 的熔斷器會浪費內存。
+        惰性初始化確保只有「被調用過的 Agent」才有熔斷器。
+        """
         if agent_id not in self.breakers:
             self.breakers[agent_id] = CircuitBreaker(
                 agent_id=agent_id,
-                failure_threshold=5,
+                failure_threshold=5,         # 與 7.8.1 一致的參數
                 recovery_timeout=30.0
             )
         return self.breakers[agent_id]
 
-    async def call_tool_with_breaker(self, agent_id: str, tool_name: str, arguments: dict) -> dict:
+    async def call_tool_with_breaker(
+        self, agent_id: str, tool_name: str, arguments: dict
+    ) -> dict:
+        """
+        帶熔斷保護的工具調用 —— MCP Service 的主要入口
+        ============================================================
+        正常流程：breaker.call() → _raw_tool_call() → 返回結果
+        熔斷時：breaker 直接拋 CircuitBreakerOpenError → 降級返回
+        CCA 看不到熔斷器的存在（對 CCA 透明），只看到「成功」或「降級響應」。
+        """
         breaker = self.get_breaker(agent_id)
 
         try:
@@ -841,19 +1160,37 @@ class MCPServiceWithBreaker:
             return {"content": [{"type": "text", "text": str(result)}], "isError": False}
 
         except CircuitBreakerOpenError as e:
-            # 降級：返回友好錯誤，建議用戶稍後重試
+            # 降級策略：返回結構化錯誤，讓 CCA 可以構建用戶友好的提示
             return {
-                "content": [{"type": "text", "text": f"服務暫時不可用（{agent_id}）：{str(e)}。請稍後重試。"}],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"服務暫時不可用（{agent_id}）：{str(e)}。請稍後重試。"
+                    }
+                ],
                 "isError": True,
+                # _metadata 字段讓 CCA 知道「這是熔斷器導致的」而非「Agent 自身錯誤」
+                # CCA 可以據此顯示「系統維護中」而非「工具執行失敗」
                 "_metadata": {"circuit_breaker": "open", "agent_id": agent_id}
             }
 
     async def _raw_tool_call(self, agent_id: str, tool_name: str, arguments: dict):
+        """
+        無保護的原始工具調用 —— 由 breaker.call() 包裝後執行
+        ============================================================
+        注意：此方法的異常會被 breaker.call() 捕獲並計入失敗計數。
+        確保只拋出「真正的失敗」（Agent 崩潰、超時），而非「業務邏輯錯誤」（參數無效）。
+        """
         agent = self.registry.get_agent(agent_id)
         if not agent:
             raise ValueError(f"Agent not found: {agent_id}")
         return await agent.call_tool(tool_name, arguments)
 ```
+
+**關鍵設計決策**：
+- **每個 Agent 獨立熔斷器**：`breakers` 字典按 `agent_id` 隔離。hr-agent 宕機時其熔斷器打開，但 it-agent 的熔斷器仍為 CLOSED。這避免了「一個壞蘋果污染整籃」的級聯故障。
+- **`_metadata` 降級標記**：CircuitBreakerOpenError 返回中帶 `_metadata: {"circuit_breaker": "open"}`，讓 CCA 區分「Agent 主動錯誤」和「基礎設施熔斷」。兩者的用戶提示完全不同：「工具執行失敗」vs「系統維護中」。
+- **`_raw_tool_call` 分離**：將「無保護調用」與「熔斷器包裝」分開，確保熔斷邏輯可獨立測試。同時 `_raw_tool_call` 的異常會被 `breaker.call()` 捕獲——這是刻意的，因為任何異常都應該計入失敗計數。
 
 ---
 
@@ -864,7 +1201,14 @@ class MCPServiceWithBreaker:
 隨著 Agent 進化，工具的接口（參數、返回值）可能發生變化。MCP Service 需要支持多版本工具共存：
 
 ```yaml
-# tool_versions.yaml
+# tool_versions.yaml —— 工具多版本管理配置
+# ================================================================
+# 以 create_ad_account（IT 賬戶創建）為例，展示三個版本共存的策略。
+# 為什麼需要版本管理？
+# - v1 已在生產環境使用，不能直接刪除（破壞向後兼容）
+# - v2 新增 MFA 功能，是當前活躍版本（default）
+# - v3 實驗性 SCIM 支持，僅供內部測試
+# 類似 REST API 的版本管理，但用在 Agent 工具接口上。
 tools:
   create_ad_account:
     versions:
@@ -875,9 +1219,9 @@ tools:
           properties:
             username: {type: string}
             display_name: {type: string}
-          required: [username, display_name]
+          required: [username, display_name]       # v1 只需 2 個必填參數
         agent: it-agent-v1
-        status: deprecated  # 即將下線
+        status: deprecated  # 即將下線：已有 v2/v3 取代
 
       v2:
         description: "在 AD 中創建用戶賬戶（增強版，支持 MFA）"
@@ -887,10 +1231,10 @@ tools:
             username: {type: string}
             display_name: {type: string}
             department: {type: string}
-            enable_mfa: {type: boolean, default: false}
-          required: [username, display_name, department]
+            enable_mfa: {type: boolean, default: false}    # v2 新增：MFA 支持
+          required: [username, display_name, department]   # v2 新增必填：department
         agent: it-agent-v2
-        status: active  # 當前活躍版本
+        status: active  # 當前活躍版本：CCA 默認調用此版本
 
       v3:
         description: "在 AD 中創建用戶賬戶（實驗版，支持 SCIM）"
@@ -901,11 +1245,16 @@ tools:
             display_name: {type: string}
             department: {type: string}
             enable_mfa: {type: boolean, default: false}
-            scim_provision: {type: boolean, default: false}
+            scim_provision: {type: boolean, default: false}  # v3 新增：SCIM 自動化配置
           required: [username, display_name, department]
-        agent: it-agent-v2
-        status: beta  # 測試中
+        agent: it-agent-v2    # 注意：v3 仍使用 it-agent-v2（同 Agent，不同 Schema）
+        status: beta  # 測試中：僅對特定 CCA 開放
 ```
+
+**關鍵設計決策**：
+- **Agent 與版本解耦**：v2 和 v3 共用 `it-agent-v2`，但 Schema 不同。這意味著「Agent 能力」和「工具接口版本」是兩個獨立維度。Agent 可以通過同一個 Agent 處理多個版本的工具調用，只需要內部路由到對應的處理邏輯。
+- **`required` 字段的版本演進**：v1 只需 `username` + `display_name`，v2 新增必填 `department`。這是「向後兼容的破壞性變更」——v1 的調用方如果升級到 v2，必須補充 `department` 參數。版本路由機制確保 v1 調用方仍然路由到 v1 的 Schema。
+- **`deprecated` → `beta` → `active` 三態**：不是簡單的「活躍/下線」二態。`beta` 狀態允許灰度測試（僅對特定 CCA 開放），避免實驗性功能直接暴露給所有調用方。
 
 ### 7.9.2 版本路由實現
 
@@ -974,6 +1323,12 @@ class ToolVersionRouter:
                     })
         return tools
 ```
+
+**關鍵設計決策**：
+- **版本路由三級策略**：`resolve_tool()` 的查找順序是 明確指定版本 → 默認版本 → 最新版本（`max(versions.keys())`）。這確保：(1) CCA 可以精確指定版本；(2) 未指定時使用穩定版（`active`）；(3) 全新工具無需手動配置默認版本。
+- **版本命名語義化**：工具名格式為 `tool_name:version`（如 `create_ad_account:v2`）。冒號分隔符讓 MCP 協議的 `tools/list` 響應中能同時暴露多版本，CCA 可以根據自身能力選擇合適版本。
+- **`deprecated` 過濾**：`get_tools_list()` 自動排除 `deprecated` 版本，但不刪除配置。這確保已註冊的 CCA 調用方仍然可以路由到舊版本（向後兼容），而新 CCA 看不到已棄用版本（避免誤用）。
+- **`is_default` 標記**：`annotations` 中的 `is_default` 字段讓 CCA 在工具列表中標記「推薦版本」，引導 LLM 選擇正確的工具版本，減少因版本錯誤導致的調用失敗。
 
 ---
 
