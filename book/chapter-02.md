@@ -460,10 +460,23 @@ Specialized Agents 的運作依賴四個關鍵組件的協作：
 }
 ```
 
+**Schema 各欄位的關鍵設計意圖**
+
+| 欄位 | 用途 | 為什麼重要 |
+|------|------|-----------|
+| `agent_id` | Agent 的唯一標識，包含版本號（`v1`） | 支援金絲雀發布：新版本 Agent 註冊新 `agent_id`，CCA 可逐步切換流量 |
+| `agent_type` | Agent 的業務域分類 | CCA 按類型快速篩選，避免遍歷所有 Agent 的能力列表 |
+| `capabilities[].name` | 能力的程式化名稱 | CCA 在任務分解後，透過此名稱匹配最合適的 Agent |
+| `input_schema` | JSON Schema 格式的輸入規範 | CCA 自動驗證請求格式，不合格的請求在發送前就被攔截 |
+| `required` | 必填欄位列表 | 當 CCA 缺少必填欄位時，應先向用戶澄清而非盲目執行 |
+| `output_schema` | 輸出結構的規範 | CCA 可提前知道 Agent 會返回什麼，便於結果整合與呈現 |
+| `status` 的 `enum` | 受控的狀態值 | 避免 Agent 返回非預期狀態，CCA 的狀態機可以窮舉處理 |
+| `sla` | 服務水平協議 | CCA 據此判斷 Agent 是否能承接任務（如併發上限已滿時選擇備用 Agent） |
+
 這種標準化的能力暴露讓 CCA 能夠：
 - **發現**：查詢 Agent Registry 找到能執行特定任務的 Agent
-- **調用**：構造符合 Schema 的請求
-- **解析**：理解 Agent 返回的結構化結果
+- **調用**：構造符合 Schema 的請求（自動驗證必填欄位）
+- **解析**：理解 Agent 返回的結構化結果（基於 `output_schema` 做型別檢查）
 
 ### 2.3.3 工具使用（Tool Use）
 
@@ -472,6 +485,11 @@ Specialized Agent 通過 Tool Use 機制與外部系統交互。每個 Tool 是�
 ```python
 # 示例：IT Agent 的工具集
 from letta import tool
+
+# Letta 的 @tool 裝飾器做三件事：
+# 1. 將函數註冊為 Agent 可調用的工具（Tool）
+# 2. 從函數簽名自動生成 JSON Schema（供 LLM 理解參數結構）
+# 3. 從 docstring 提取工具描述（供 LLM 判斷何時使用此工具）
 
 @tool
 def query_hr_database(employee_name: str) -> dict:
@@ -495,6 +513,32 @@ def send_welcome_email(email: str, name: str, temp_password_ref: str) -> bool:
     # 實際實現：調用郵件服務 API
     pass
 ```
+
+**Tool Use 機制的運作原理**
+
+當 LLM 決定調用某個 Tool 時，實際發生以下流程：
+
+```
+LLM 推理 → 決定調用 create_active_directory_account
+         → 生成結構化參數 {"username": "zhangxm", "department": "市場部", "groups": ["market-team"]}
+         → Letta Runtime 接收調用請求
+         → 驗證參數是否符合 JSON Schema
+         → 執行函數體（調用外部 AD API）
+         → 返回結果給 LLM
+         → LLM 根據結果決定下一步行動
+```
+
+**三個設計要點**
+
+| 要點 | 說明 | 為什麼重要 |
+|------|------|-----------|
+| **型別提示（Type Hints）** | 每個參數都標註了 Python 型別（`str`、`list[str]`） | Letta 自動將型別提示轉換為 JSON Schema，確保 LLM 生成的參數格式正確 |
+| **Docstring 作為描述** | 函數的 docstring 成為工具的 `description` 欄位 | LLM 根據描述判斷何時應該使用此工具——描述越精確，LLM 的工具選擇越準確 |
+| **返回值型別** | `-> dict` 或 `-> bool` | LLM 知道預期的返回格式，便於後續處理結果 |
+
+**Tool 與 Agent 的關係**
+
+每個 Specialized Agent 擁有自己的 Tool 集合——IT Agent 有 `create_active_directory_account`，HR Agent 有 `query_employee_record`。這種「深而窄」的設計確保每個 Agent 專注於自己的領域，不會出現跨領域的工具衝突。Tool 的註冊發生在 Agent 啟動時，並通過 Agent Registry 暴露給 CCA。
 
 ### 2.3.4 Agent Registry 的實現
 
@@ -554,6 +598,62 @@ class AgentRegistry:
             reg.status = status
             await self.etcd.put(key, json.dumps(asdict(reg)))
 ```
+
+**AgentRegistry 實現的設計決策**
+
+這段代碼看似簡單，但每個設計選擇都反映了分佈式系統的關鍵考量：
+
+**① 為什麼選擇 etcd 作為後端存儲？**
+
+| 特性 | etcd 提供的能力 | 平台如何受益 |
+|------|----------------|-------------|
+| **強一致性** | 基於 Raft 協議，所有節點看到相同的註冊信息 | CCA 在任何節點查詢 Agent Registry，結果一致 |
+| **Watch 機制** | 支持對 key 的變更進行即時通知 | Agent 上線/下線時，CCA 可即時感知，無需輪詢 |
+| **TTL/Lease** | 為 key 設置生存時間，過期自動刪除 | Agent 崩潰後未發送心跳，註冊信息自動過期——無需手動清理 |
+| **分佈式鎖** | 基於 key 的 CAS（Compare-And-Swap）操作 | 防止多個 Agent 實例同時註冊同一 `agent_id` 時的競態條件 |
+
+**② 資料結構的每個欄位都有用途**
+
+```python
+@dataclass
+class AgentRegistration:
+    agent_id: str          # 唯一標識（含版本號），支持金絲雀發布
+    agent_type: str        # 業務域分類（"it_operations"、"hr_management"）
+    capabilities: list[dict]  # 能力列表，每個能力包含 name + input/output schema
+    endpoint: str          # K8s Service 名稱（如 "it-agent.default.svc.cluster.local"）
+    version: str           # 軟體版本號，用於灰度發布
+    status: str            # 健康狀態：healthy / degraded / unhealthy
+    registered_at: datetime  # 註冊時間，用於計算 Agent 存活時長
+    last_heartbeat: datetime # 最後心跳時間，用於判斷 Agent 是否存活
+    sla: dict              # 服務水平協議（回應時間、併發上限等）
+```
+
+**③ 四個核心方法的協作關係**
+
+```
+Agent 啟動 → register() 寫入 etcd → CCA 可 discover() 此 Agent
+     ↓
+Agent 運行 → heartbeat() 定期更新 last_heartbeat 和 status
+     ↓
+Agent 健康 → discover() 返回此 Agent → CCA 分派任務
+Agent 異常 → heartbeat() 上報 status="unhealthy" → discover() 過濾掉此 Agent
+Agent 崩潰 → 心跳停止 → etcd Lease 過期 → 自動刪除註冊信息
+Agent 停止 → deregister() 主動刪除 → 立即從發現列表移除
+```
+
+**④ `discover()` 的能力匹配邏輯**
+
+```python
+# discover("create_ad_account") 的執行過程：
+async for key, value in self.etcd.get_prefix(self.prefix):
+    reg = AgentRegistration(**json.loads(value))  # 反序列化
+    if reg.status == "healthy":                    # 過濾：只選健康的
+        if any(c["name"] == capability for c in reg.capabilities):  # 匹配能力名稱
+            agents.append(reg)
+return agents  # 返回所有匹配的 Agent，CCA 再按 SLA 選擇最優
+```
+
+注意：`discover()` 返回的是**列表**而非單個 Agent——這是有意為之。當多個 Agent 具備相同能力時，CCA 可以根據 SLA（回應時間、當前負載）選擇最合適的一個，實現負載均衡。
 
 **發現流程**：當 CCA 需要「創建 IT 帳號」時，它調用 `registry.discover("create_ad_account")`，Registry 返回所有具備該能力且狀態健康的 Agent 列表，CCA 從中選擇最合適的（基於負載、延遲等指標）。
 
