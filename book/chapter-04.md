@@ -305,6 +305,37 @@ graph TB
     ControlPlane -->|配置下發| DataPlane
 ```
 
+上圖展示了 Istio 的兩層架構：控制平面（istiod）負責管理和配置，數據平面（Envoy Sidecar）負責實際的流量處理。這是 Service Mesh 的核心設計模式——**控制與數據分離**。
+
+**控制平面（istiod）的三個角色**
+
+| 組件 | 職責 | 類比 |
+|------|------|------|
+| **Pilot** | 服務發現（哪些 Pod 在線、地址是什麼）+ 配置分發（路由規則、負載均衡策略） | 交通指揮中心——知道所有車輛的位置，並實時下發新的路線指引 |
+| **Citadel** | 證書管理——自動為每個 Pod 頒發、輪換 mTLS 證書，實現零信任通信 | 身份證局——自動為每位公民頒發和更新身份證件 |
+| **Galley** | 配置驗證與分發——確保開發者提交的 Istio 配置是合法的，然後安全地下發到數據平面 | 配置審計員——攔截並驗證所有配置變更，防止錯誤配置進入生產環境 |
+
+**數據平面的 Sidecar 模式**
+
+圖中最關鍵的設計是每個 Pod 內部的雙容器結構：
+
+| Pod | 業務容器 | Sidecar 容器 | 數據流向 |
+|-----|---------|-------------|---------|
+| CCA Pod | CCA Container | Envoy Proxy | CCA → Envoy → 外部（所有出站流量經過 Envoy） |
+| HR Agent Pod | HR Agent Container | Envoy Proxy | HR Agent → Envoy → 外部 |
+| IT Agent Pod | IT Agent Container | Envoy Proxy | IT Agent → Envoy → 外部 |
+
+**mTLS 通信的三條連接線**
+
+圖中 Envoy 之間的三條 `mTLS` 雙向箭頭揭示了一個重要事實：**Agent 之間不直接通信**。所有 Pod 間的流量都經過 Envoy Proxy，由 Envoy 完成 TLS 加密和身份驗證。這意味著：
+
+- CCA 想和 HR Agent 通信 → CCA 發送給本地 Envoy → 本地 Envoy 通過 mTLS 連接到 HR Agent 的 Envoy → HR Agent 的 Envoy 轉發給 HR Agent
+- 業務代碼完全無感知——Agent 不需要寫任何加密、認證、路由的代碼
+
+**控制平面如何影響數據平面**
+
+圖底部的「配置下發」箭頭是兩層之間的唯一交互：istiod 將路由規則、mTLS 策略、負載均衡配置推送到每個 Envoy Sidecar。這個過程是**實時的**——當你修改 Istio 配置時，所有 Envoy 會在秒級內接收並生效，無需重啟 Pod。
+
 **核心機制**：每個 Pod 中除了運行 Agent 的容器外，還運行一個 **Envoy Proxy** 容器（Sidecar）。所有進出 Pod 的網絡流量都經過 Envoy，由 Envoy 實現加密、路由、負載均衡、遙測收集。Agent 的應用代碼完全不需要處理這些問題。
 
 ### 4.2.3 Istio 的核心功能在 Agent Platform 中的應用
@@ -484,6 +515,30 @@ graph LR
     Exporter --> Prometheus
     Exporter --> Loki
 ```
+
+上圖展示了 OpenTelemetry 的三層架構：Agent 組件（數據源）→ OTel Collector（數據處理管道）→ 後端存儲（數據消費）。這是整個平台可觀察性的基礎——所有組件通過統一的 OTLP 協議向 Collector 發送遙測數據，Collector 負責處理和分發。
+
+**三層架構的數據流**
+
+| 層級 | 組件 | 發生了什麼 | 設計要點 |
+|------|------|-----------|---------|
+| **Agent 組件（數據源）** | CCA、HR Agent、IT Agent、MCP Service、Portal | 每個組件內嵌 OTel SDK，在執行業務邏輯的同時自動生成 Trace Span、Metric Point 和 Log Entry | 業務代碼不需要手動調用遙測 API——OTel SDK 通過裝飾器模式（Decorator Pattern）自動攔截並記錄 |
+| **OTel Collector（處理管道）** | Receiver → Processor → Exporter | Receiver 接收所有 OTLP 數據，Processor 進行採樣（丟棄低價值 Span）、過濾（移除敏感信息）、富化（添加 K8s 元數據），Exporter 將處理後的數據導出到對應後端 | **三階段管道**是 Collector 的核心設計——每個階段可獨立配置，支持熱更新 |
+| **後端存儲（數據消費）** | Jaeger、Prometheus、Loki | 各自專注於一類遙測數據的存儲和查詢：Jaeger 存 Trace（請求鏈路）、Prometheus 存 Metrics（數值指標）、Loki 存 Logs（文本日誌） | 後端之間互不依賴——即使 Loki 掛了，Jaeger 和 Prometheus 仍然正常工作 |
+
+**五個 Agent 組件為什麼都要集成 OTel SDK**
+
+| 組件 | 關鍵遙測需求 | 不接 OTel 的後果 |
+|------|-------------|----------------|
+| **CCA** | 記錄意圖識別的延遲、任務分解的準確率 | 無法知道 LLM 推理佔了多少時間 |
+| **HR Agent** | 記錄 RAG 檢索的召回率、工具調用的成功率 | 無法知道 HR 數據查詢是否準確 |
+| **IT Agent** | 記錄 AD 操作的延遲、重試次數 | 無法知道帳號創建是否順利 |
+| **MCP Service** | 記錄消息路由的延遲、隊列深度 | 無法知道消息是否積壓 |
+| **Portal** | 記錄用戶響應時間、WebSocket 連接數 | 無法知道用戶體驗是否流暢 |
+
+**OTLP 協議的統一性**
+
+圖中所有箭頭都標註了 `OTLP`——這是 OpenTelemetry 的原生協議（基於 Protobuf + gRPC）。統一協議帶來的關鍵優勢：Agent 組件不需要知道後端是 Jaeger 還是 Prometheus，OTel Collector 負責數據的分發和轉換。這意味著你可以隨時替換後端存儲（比如從 Jaeger 切換到 Tempo），而無需修改任何 Agent 的代碼。
 
 ### 4.3.3 三大遙測信號
 
@@ -901,6 +956,33 @@ graph LR
         Canary --> Prod[全量部署到 Production]
     end
 ```
+
+上圖展示了 Agent 的 CI/CD 流水線，分為持續集成（CI）和持續部署（CD）兩個階段。與傳統微服務的 CI/CD 相比，Agent 流水線有兩個關鍵差異：**行為測試**和**質量門檻評估**。
+
+**持續集成（CI）階段——代碼到鏡像**
+
+| 步驟 | 發生了什麼 | 與傳統 CI/CD 的差異 |
+|------|-----------|-------------------|
+| **代碼提交** | 開發者推送代碼到 Git Repo，觸發 CI Pipeline | 相同 |
+| **代碼檢查** | 靜態分析（Lint）、格式化檢查、安全掃描 | 相同 |
+| **單元測試** | 驗證各函數/方法的輸入輸出正確性 | 相同 |
+| **Agent 行為測試** | 驗證 Agent 在特定場景下是否做出「正確的行為選擇」（見 §4.7.2） | **新增**——傳統 CI 沒有這一步，因為傳統服務的行為是確定性的 |
+| **構建 Docker 鏡像** | 將 Agent 代碼、依賴、模型打包為容器鏡像 | 相同 |
+
+**持續部署（CD）階段——鏡像到生產**
+
+| 步驟 | 發生了什麼 | 關鍵設計要點 |
+|------|-----------|------------|
+| **推送鏡像** | 將構建好的鏡像推送到 Container Registry（如 Harbor） | 鏡像帶版本標籤（`v1.2.3`），支持快速回滾 |
+| **部署到 Staging** | 將鏡像部署到 Staging 環境（與 Production 配置一致的測試環境） | Staging 使用 Mock 後端服務，避免影響真實業務數據 |
+| **Agent 質量評估** | 在 Staging 環境中運行 Agent，評估響應準確率、延遲、Token 消耗等指標 | **這是 Agent CI/CD 的核心差異**——傳統服務只需要「功能正確」，Agent 還需要「質量達標」 |
+| **質量門檻** | 檢查評估結果是否達到預設閾值（如響應準確率 > 90%） | **質量門檻是自動化的護欄**——未達標的版本自動攔截，不會進入生產環境 |
+| **金絲雀發布** | 先將新版本部署到 5% 的流量，觀察指標穩定後逐步擴大 | 金絲雀期間密切關注 OTel 指標（延遲、錯誤率、Token 成本），任何異常立即回滾 |
+| **全量部署** | 金絲雀穩定後，將新版本推送到所有 Pod | 零停機部署——K8s 滾動更新 + Istio 流量切換 |
+
+**質量門檻的護欄作用**
+
+質量門檻是 CI/CD 中的「守門員」。它解決了一個 Agent 特有的問題：**模型更新可能導致行為退化**。當你更新 LLM 模型或修改 Prompt 時，Agent 在某些場景下的表現可能變好，但在另一些場景下可能變差。質量門檻通過自動化的全場景評估，確保整體質量只升不降。
 
 ### 4.7.2 Agent 行為測試
 

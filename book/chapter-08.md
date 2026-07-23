@@ -51,6 +51,45 @@ graph TB
     end
 ```
 
+上圖將整個 K8s 集群劃分為五個 Namespace，每個 Namespace 代表一個安全邊界和管理域。這種劃分並非隨意——它直接對應了 Zero Trust 架構中的「最小權限原則」：不同職責的組件被隔離在各自的 Namespace 中，通過 NetworkPolicy 和 Istio AuthorizationPolicy 嚴格控制跨 Namespace 的流量。
+
+#### 各 Namespace 的職責與意義
+
+| Namespace | 職責定位 | 包含組件 | 隔離原因 |
+|-----------|---------|---------|---------|
+| **`platform-system`** | 平台核心大腦 | CCA Agent (3 replicas)、MCP Service (3 replicas) | 這是整個 Agent 協同的中樞。CCA 負責意圖識別與任務分解，MCP Service 負責工具路由與 gRPC 通訊。它們是唯一面向用戶請求的組件，安全要求最高——任何入侵都意味著整個 Agent 生態系統被控制。因此單獨隔離，並通過 Istio 限制只有 `ingress` Namespace 的流量能到達。 |
+| **`agents`** | 領域專家 Worker | HR Agent (2 replicas)、IT Agent (3 replicas) | 每個 Agent 是獨立的領域處理器，持有各自的敏感憑證（HR API Token、Active Directory API Token）。隔離後可以精確控制「CCA 能訪問哪些 Agent」、「Agent 之間能否互訪」。例如：HR Agent 不應有權限觸發 IT Agent 的操作。同一 Namespace 內的 Agent 共享 NetworkPolicy 基線，但每個 Agent 有獨立的 ServiceAccount。 |
+| **`infra`** | 基礎設施數據層 | NATS (3 nodes)、etcd (3 nodes)、PostgreSQL、ChromaDB | 所有有狀態服務集中於此。這些組件存儲平台的核心數據——NATS 負責 Agent 間的消息路由，PostgreSQL 存儲任務狀態與審計日誌，ChromaDB 存儲 RAG 向量索引。它們絕不直接面向用戶，只接受來自 `platform-system` 和 `agents` 的受控連接。 |
+| **`observability`** | 全域可觀測性 | OTel Collector (2 replicas)、Jaeger (1 replica)、Prometheus | 監控系統需要跨所有 Namespace 收集 metrics、traces 和 logs。獨立成 Namespace 的原因是：如果監控系統與業務組件混在同一 Namespace，它們會共享相同的 NetworkPolicy 限制——監控的「讀取」權限會被業務的「 deny-all」策略阻斷。獨立後可以為 `observability` 建立專用的跨 Namespace 抓取規則（見 8.9.3）。 |
+| **`ingress`** | 流量入口與 TLS 終止 | Istio Gateway、cert-manager | 集群的唯一對外窗口。所有外部流量都從這裡進入，Istio Gateway 在此終止 TLS、執行 JWT 驗證、路由到對應的內部 Service。cert-manager 自動管理 TLS 證書的簽發與輪轉。隔離的目的是確保即使 Ingress 組件被攻破，攻擊者也無法直接訪問集群內部的 Pod。 |
+
+#### 跨 Namespace 通信模式
+
+圖中的箭頭代表了五種關鍵的通信模式：
+
+- **實線箭頭**（`→`）：業務數據流。CCA 接收用戶請求後，通過 gRPC 調用 MCP Service（同 Namespace），MCP Service 再將具體任務路由到 HR/IT Agent（跨 Namespace），Agent 處理過程中需要讀寫 NATS/PostgreSQL/ChromaDB（跨 Namespace）。
+- **虛線箭頭**（`-.-→`）：監控採集流。Prometheus 通過 ServiceMonitor 抓取各 Namespace 的 metrics 端點（:9090），OTel Collector 收集 distributed traces 和結構化 logs。這是被動的「拉取」模式，不會影響業務數據流。
+
+#### 為什麼要拆分成五個而不是更多/更少？
+
+- **更少（如合併成 2-3 個）**：安全邊界太粗。例如把 CCA 和 Agent 放同一 Namespace，NetworkPolicy 只能控制到 Namespace 級別，無法實現「CCA 能訪問 Agent 但 Agent 之間不能互訪」的精細控制。
+- **更多（如每個 Agent 一個 Namespace）**：管理成本過高。每個 Namespace 都需要獨立的 ResourceQuota、NetworkPolicy、RBAC RoleBinding。對於 HR Agent 和 IT Agent 這類同等級的 Worker 組件，它們的安全需求和訪問模式完全相同，拆分帶來的管理開銷大於安全收益。
+
+#### Namespace 與 RBAC 的配合
+
+每個 Namespace 可以綁定獨立的 RBAC RoleBinding，實現更細粒度的權限控制：
+
+```yaml
+# 典型的 RBAC 分配：
+# - platform-system:  ServiceAccount "cca-agent"  → 可讀寫 MCP Service
+# - agents:           ServiceAccount "hr-agent"    → 只能讀寫 HR Agent 自身資源
+# - agents:           ServiceAccount "it-agent"    → 只能讀寫 IT Agent 自身資源
+# - observability:    ServiceAccount "prometheus"   → 跨 Namespace 讀取 metrics
+# - infra:            限制只有 platform-system 和 agents 的 SA 能連接
+```
+
+這種「Namespace 隔離 + RBAC 最小權限 + NetworkPolicy 白名單」的三層防禦，確保即使某個 Pod 被入侵，攻擊面也被限制在該 Namespace 的最小範圍內。
+
 ### 8.1.2 資源配額與限制
 
 在多租戶或多功能的 K8s 集群中，如果某個 Namespace 無限制地佔用 CPU 和記憶體，其他 Namespace 的服務將面臨資源飢餓。以下配置使用 ResourceQuota 和 LimitRange 兩個原生物件來解決這個問題：ResourceQuota 負責管控整個 Namespace 的資源總量上限，而 LimitRange 則定義單個 Pod/Container 的資源範圍（默認值與最大值），兩者配合形成「總量 + 個體」的雙重防線。

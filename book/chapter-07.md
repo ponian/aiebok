@@ -33,6 +33,152 @@ sequenceDiagram
     MCP-->>LLM: { contents: [...] }
 ```
 
+上圖展示了 MCP 協議的三種核心通信模式。這三種模式並非平級並列，而是構成了一個完整的工具生命週期：**發現** → **調用** → **訂閱**。LLM 先知道有什麼工具可用，再決定調用哪個工具，最後可以持續追蹤工具操作的後續變化。
+
+#### 模式一：工具發現（Tool Discovery）
+
+```
+LLM ──tools/list──→ MCP Service ──→ 返回所有已註冊工具的 Schema
+LLM ←── [HR Agent 工具清單, IT Agent 工具清單, ...] ── MCP Service
+```
+
+| 項目 | 說明 |
+|------|------|
+| **觸發時機** | 對話開始時、工具清單變更時、或 LLM 需要重新確認可用工具時 |
+| **方法** | `tools/list` |
+| **返回內容** | 所有已註冊工具的名稱、描述、參數 Schema（JSON Schema 格式） |
+| **核心價值** | LLM 不需要預先知道有哪些工具——它通過這個調用「看見」所有可用能力，然後根據用戶意圖自主決定調用哪個工具 |
+
+**工具發現的實際運作**：當 CCA 收到用戶請求「幫張小明開通 IT 帳號」時，CCA 的 LLM 首先調用 `tools/list`，MCP Service 返回所有已註冊工具：
+
+```json
+{
+  "tools": [
+    {
+      "name": "hr_agent_query_employee",
+      "description": "查詢員工基本資料，返回姓名、部門、職位、入職日期",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "employee_id": { "type": "string", "description": "員工編號" }
+        },
+        "required": ["employee_id"]
+      }
+    },
+    {
+      "name": "it_agent_create_account",
+      "description": "為新員工創建 IT 帳號，包括 Email、AD 帳號、臨時密碼",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "employee_name": { "type": "string" },
+          "department": { "type": "string" },
+          "role": { "type": "string" }
+        },
+        "required": ["employee_name", "department", "role"]
+      }
+    },
+    {
+      "name": "it_agent_reset_password",
+      "description": "重置員工 IT 帳號密碼，生成新臨時密碼並發送通知",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "employee_id": { "type": "string" }
+        },
+        "required": ["employee_id"]
+      }
+    }
+  ]
+}
+```
+
+LLM 拿到這個清單後，結合用戶意圖「幫張小明開通 IT 帳號」，自主判斷需要先查詢員工資料（`hr_agent_query_employee`），再創建帳號（`it_agent_create_account`）——這個「理解意圖 → 選擇工具」的決策完全由 LLM 完成，MCP Service 只負責提供工具清單。
+
+#### 模式二：工具調用（Tool Call）
+
+```
+LLM ──tools/call {name, arguments}──→ MCP Service ──轉發──→ Specialized Agent
+LLM ←── {content: [{type: "text", text: "..."}]} ── MCP Service ←── 處理結果
+```
+
+| 項目 | 說明 |
+|------|------|
+| **觸發時機** | LLM 決定需要執行某個具體操作時 |
+| **方法** | `tools/call` |
+| **參數** | `name`（工具名稱）+ `arguments`（工具參數，對應 inputSchema） |
+| **返回內容** | `content` 數組（支持 text/image/resource 多種類型）+ `isError` 標誌 |
+| **核心價值** | 將 LLM 的「意圖」轉化為「行動」——這是 AI 從「能說」到「能做」的關鍵橋梁 |
+
+**工具調用的完整生命週期**：以「創建 IT 帳號」為例，一次工具調用經歷以下階段：
+
+```
+階段 1：CCA 的 LLM 決定調用 it_agent_create_account
+    ↓
+階段 2：CCA 發送 tools/call 請求到 MCP Service
+    ↓
+階段 3：MCP Service 根據工具名稱路由到 IT Agent（通過 gRPC）
+    ↓
+階段 4：IT Agent 執行實際操作（調用 AD API 創建帳號）
+    ↓
+階段 5：IT Agent 返回結果到 MCP Service
+    ↓
+階段 6：MCP Service 格式化為 MCP 標準格式返回給 CCA
+    ↓
+階段 7：CCA 的 LLM 拿到結果，決定下一步（如發送通知給用戶）
+```
+
+每個階段都可能失敗：階段 3 可能路由到錯誤的 Agent、階段 4 可能 AD API 超時、階段 6 可能格式化錯誤。MCP Service 在中間層負責錯誤轉換和重試邏輯，確保 LLM 看到的永遠是標準化的 `content` + `isError` 格式。
+
+#### 模式三：資源訂閱（Resource Subscription）
+
+```
+LLM ──resources/subscribe {uri}──→ MCP Service
+LLM ←── {contents: [...]} ── MCP Service（初始快照）
+    ... 隨後當資源變更時 ...
+LLM ←── {contents: [...]} ── MCP Service（變更通知，主動推送）
+```
+
+| 項目 | 說明 |
+|------|------|
+| **觸發時機** | LLM 需要持續追蹤某個實體的狀態變化時（如員工入職流程進度） |
+| **方法** | `resources/subscribe` |
+| **參數** | `uri`（資源標識符，如 `hr://employee/12345`） |
+| **返回內容** | 初始資源快照 + 後續變更的主動推送 |
+| **核心價值** | 將「一次性的工具調用」升級為「持續的狀態感知」——Agent 可以被動接收外部變化，而非反覆輪詢 |
+
+**資源訂閱 vs 工具調用的關鍵區別**：
+
+| 維度 | 工具調用 (Tool Call) | 資源訂閱 (Resource Subscription) |
+|------|---------------------|----------------------------------|
+| **通信方向** | 請求-響應（同步） | 訂閱-推送（異步） |
+| **數據流** | LLM 主動拉取 | MCP Service 主動推送 |
+| **時機** | 一次性 | 持續性 |
+| **典型場景** | 創建帳號、查詢資料 | 追蹤入職流程進度、監聽新任務到達 |
+| **效率** | 每次需要 LLM 發起請求 | 資源變更時自動通知，無需輪詢 |
+
+**資源訂閱的實際運作場景**：當 HR Agent 創建了新員工資料後，CCA 可能需要追蹤「入職流程是否完成」。CCA 訂閱 `hr://onboarding/12345`，初始返回當前狀態 `{status: "pending_ad_account"}`。當 IT Agent 完成帳號創建後，MCP Service 主動推送 `{status: "ad_account_created", ...}`。CCA 的 LLM 看到狀態變化，自動決定下一步操作（如通知用戶帳號已開通）。
+
+#### 三種模式的協同關係
+
+在實際的企業場景中，三種模式通常按以下順序協同工作：
+
+```
+1. 工具發現：CCA 啟動時調用 tools/list，獲取所有可用工具
+   ↓
+2. 用戶發送請求：「幫新員工張小明辦理入職」
+   ↓
+3. 工具調用：CCA 依次調用 hr_agent_query_employee → it_agent_create_account
+   ↓
+4. 資源訂閱：CCA 訂閱 hr://onboarding/12345，追蹤入職流程進度
+   ↓
+5. 推送更新：IT Agent 完成帳號創建 → MCP Service 推送狀態變化
+   ↓
+6. 工具調用：CCA 根據狀態變化，調用 hr_agent_send_welcome_email
+```
+
+這種「發現 → 調用 → 訂閱」的三段式設計，讓 MCP 成為一個完整的 Agent 能力中介層：LLM 不需要知道底層有多少個 Agent、每個 Agent 用什麼語言實現、通信協議是什麼——它只需要與 MCP Service 的統一介面交互。
+
 ### 7.1.2 JSON-RPC 消息格式
 
 以下展示了 MCP 通信中最常見的三種 JSON-RPC 消息：工具調用請求、成功響應和失敗響應。每個消息都包含 `jsonrpc` 版本標識和用於匹配請求與響應的 `id` 字段，而 `isError` 標誌則將業務層面的成敗與 HTTP 狀態碼分離開來：
@@ -416,6 +562,117 @@ sequenceDiagram
     Portal-->>User: "新員工入職流程已完成"
     OTel->>CCA: 結束 span（duration: 12.5s）
 ```
+
+上圖展示了「新員工入職」這個企業級場景的完整端到端序列——從用戶發出自然語言指令，到所有 Agent 協同完成多步操作，再到結果回傳給用戶。這不只是 MCP 協議的展示，而是整個 AI Agent Platform 的協同縮影。以下逐一拆解每個關鍵階段。
+
+#### 整體流程結構
+
+整個序列可以分為 **六個階段**，每個階段對應一個明確的職責邊界：
+
+| 階段 | 參與者 | 職責 | 關鍵動作 |
+|------|--------|------|---------|
+| ① 任務接收 | User → Portal → CCA | 自然語言 → 結構化任務 | Portal 轉發、CCA 啟動 Span |
+| ② 工具發現 | CCA ↔ MCP | 確認可用工具清單 | `tools/list` |
+| ③ 前置查詢 | CCA → MCP → HR | 查詢員工是否存在 | `hr-agent_query_employee_database` |
+| ④ 串行執行 | CCA → MCP → HR/IT | 依序執行 4 個工具調用 | 創建記錄 → 創建帳號 → 配置權限 → 發送通知 |
+| ⑤ 結果回傳 | CCA → Portal → User | 彙整結果 + 審計日誌 | 任務完成確認 |
+| ⑥ 追蹤收尾 | OTel | 記錄端到端耗時 | Span 結束，duration: 12.5s |
+
+#### 關鍵設計決策一：為什麼「查詢」必須在「創建」之前？
+
+序列中 CCA 先調用 `hr-agent_query_employee_database` 查詢張小明是否已存在，再決定是否創建。這是 **幂等性設計** 的體現：
+
+```
+如果跳過查詢直接創建：
+  → 重複請求會導致「張小明」被創建兩次（emp_12345 和 emp_12346）
+  → IT Agent 也會創建兩個 AD 帳號
+  → 數據不一致，需要人工修復
+
+先查詢再創建：
+  → 查到已存在 → 跳過創建，直接進入下一步
+  → 查到不存在 → 執行創建
+  → 多次觸發同一請求的結果一致
+```
+
+這也是 CCA 作為「中央協調者」的核心價值——它不只是機械地執行工具調用，而是根據前一步的結果**動態決策**下一步該做什麼。如果 `query_employee` 返回「已存在」，CCA 可能跳過創建步驟，直接進入權限配置。
+
+#### 關鍵設計決策二：為什麼是串行而非並行？
+
+圖中的四個工具調用（創建記錄 → 創建帳號 → 配置權限 → 發送通知）是**嚴格串行**的，原因是存在**數據依賴鏈**：
+
+```
+hr-agent_create_employee_record
+  ↓ 返回 emp_12345（員工 ID）
+it-agent_create_ad_account
+  ↓ 需要 emp_12345 作為輸入，返回 zhangxiaoming@company.com（帳號）
+it-agent_configure_permissions
+  ↓ 需要 AD 帳號作為輸入，配置 Marketing Team 權限
+it-agent_send_notification
+  ↓ 需要 AD 帳號和 Email 作為輸入，發送歡迎郵件
+```
+
+每個步驟的輸出是下一個步驟的輸入。如果並行執行「創建帳號」和「配置權限」，配置權限時 AD 帳號可能尚未創建完成，導致失敗。
+
+**但也有可以並行的場景**：如果兩個操作之間沒有數據依賴（例如「查詢 HR 資料」和「查詢 IT 帳號狀態」），CCA 可以用 `asyncio.gather` 並行調用，將端到端延遲從串行的 N×T 降低到 max(T1, T2, ...)。這在 7.3.2 的代碼中已有體現。
+
+#### 關鍵設計決策三：MCP Service 的「轉發」角色
+
+圖中每次工具調用都經過 MCP Service「轉發」到 Agent，而非 CCA 直接調用 Agent。這是**解耦**的關鍵：
+
+```
+如果 CCA 直接調用 Agent：
+  → CCA 需要知道每個 Agent 的地址、協議、認證方式
+  → 新增 Agent 時必須修改 CCA 代碼
+  → CCA 同時承擔「協調」和「通信」兩種職責
+
+通過 MCP Service 轉發：
+  → CCA 只與 MCP Service 一個端點交互（統一介面）
+  → Agent 的地址、協議、認證方式由 MCP Service 管理
+  → 新增 Agent 只需在 MCP Service 註冊，CCA 無感知
+  → MCP Service 可以統一處理限流、重試、熔斷、審計
+```
+
+MCP Service 在此序列中是一個**透明代理**——它不改變請求/響應的內容，但增加了企業級能力（限流、重試、審計日誌、熔斷器）。
+
+#### 關鍵設計決策四：OpenTelemetry 的 Span 開始與結束
+
+圖中 OTel 在 CCA 接收任務時**開始 Span**，在任務完成後**結束 Span**，記錄了 `task_id: abc123` 和 `duration: 12.5s`。這是**分散式追蹤**的核心：
+
+```
+Span 結構：
+  Task Span (12.5s)
+    ├─ tool.hr-agent_query_employee_database (0.8s)
+    ├─ tool.hr-agent_create_employee_record (1.2s)
+    ├─ tool.it-agent_create_ad_account (2.1s)
+    ├─ tool.it-agent_configure_permissions (1.8s)
+    └─ tool.it-agent_send_notification (3.2s)
+```
+
+每個工具調用在 7.3.2 的代碼中都有獨立的子 Span，與父 Span 通過 `trace_id` 關聯。當任務失敗時（如 AD 帳號創建超時），工程師可以在 Jaeger 中輸入 `task_id: abc123`，立即看到完整的調用鏈——哪個步驟失敗、耗時多少、錯誤信息是什麼。沒有這個追蹤機制，排查「入職流程為什麼失敗」需要人工翻閱多個服務的日誌。
+
+#### 關鍵設計決策五：為什麼「發送通知」是最後一步？
+
+序列的最後一個工具調用是 `it-agent_send_notification`（發送歡迎郵件）。將通知放在最後而非中間，是因為：
+
+1. **通知的不可逆性**：郵件一旦發送無法撤回。如果在「創建帳號」後立即發送通知，但「配置權限」失敗，用戶會收到帳號信息但無法登入——這是糟糕的體驗。
+2. **通知的完整性**：歡迎郵件通常包含帳號、臨時密碼、登入指南等完整信息，這些信息需要所有前置步驟完成後才能確定。
+3. **失敗的影響範圍**：如果通知失敗（如郵件服務暫時不可用），不影響帳號和權限的創建結果。CCA 可以將通知標記為「待重試」，而不阻塞整個入職流程。
+
+#### 端到端耗時分析
+
+圖中標註了 `duration: 12.5s`，這是從 CCA 接收任務到完成所有工具調用的總耗時。分解如下：
+
+| 步驟 | 預估耗時 | 瓶頸原因 |
+|------|---------|---------|
+| tools/list | ~0.1s | MCP Service 返回工具清單（快取） |
+| query_employee | ~0.8s | HR Agent 查詢資料庫 |
+| create_employee_record | ~1.2s | HR Agent 寫入資料庫 + 事務提交 |
+| create_ad_account | ~2.1s | IT Agent 調用 AD API（外部服務，延遲最高） |
+| configure_permissions | ~1.8s | IT Agent 調用 AD API（需要等帳號創建完成） |
+| send_notification | ~3.2s | IT Agent 調用郵件服務（SMTP/SES 延遲） |
+| **總計** | **~12.5s** | 串行執行，無法重疊 |
+
+**瓶頸在外部服務調用**：AD API 和郵件服務是外部系統，延遲不可控。如果將「配置權限」和「發送通知」改為並行（兩者之間無數據依賴），總耗時可從 12.5s 降至 ~9.3s。
 
 ### 7.3.2 CCA 的工具調用邏輯
 
