@@ -63,17 +63,17 @@ ai-agent-platform/
 ### 12.2.1 環境變量配置
 
 ```bash
-# .env.example
+# .env.example — 環境變量配置，複製為 .env 後修改
 # Database
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=agent_platform
+POSTGRES_USER=postgres        # PostgreSQL 用戶名
+POSTGRES_PASSWORD=postgres    # PostgreSQL 密碼（生產環境必須更換）
+POSTGRES_DB=agent_platform    # 數據庫名稱
 
 # LLM
-LLM_MODEL=qwen2.5:7b
+LLM_MODEL=qwen2.5:7b         # Ollama 模型名稱，對應 ollama pull 的模型
 
 # API Keys (for production)
-API_KEY=your-api-key-here
+API_KEY=your-api-key-here     # 生產環境 API 密鑰（MVP 階段不使用）
 ```
 
 > **為什麼選 `qwen2.5:7b`？** 在無 GPU 的環境下，`qwen2.5:7b`（~4.7GB）是目前最佳的 CPU-only 推理模型。它具備足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，且載入速度快、佔用記憶體低。如果你有 NVIDIA GPU，可以切換到 `llama3:8b` 或 `qwen2.5:14b` 獲得更好的推理品質。
@@ -85,15 +85,15 @@ API_KEY=your-api-key-here
 services:
   # ==================== 基礎設施 ====================
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine           # Alpine 版本體積更小，適合容器化
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}       # 從 .env 讀取，有默認值
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-agent_platform}
     ports:
-      - "9101:5432"
+      - "9101:5432"                     # Host 9101 → Container 5432，避免與本機 PG 衝突
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data # 持久化存儲，容器重啟數據不丟失
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -103,7 +103,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "9102:6379"
+      - "9102:6379"                     # MVP 用於 Agent 狀態快取
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -113,13 +113,13 @@ services:
   nats:
     image: nats:2-alpine
     ports:
-      - "9103:4222"
-      - "9104:8222"
-    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
+      - "9103:4222"                     # 客戶端連接端口
+      - "9104:8222"                     # HTTP 監控端口
+    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]  # 啟用 JetStream 持久化
     volumes:
       - natsdata:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:8222/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8222/healthz || exit 1"]  # Alpine 自帶 wget
       interval: 5s
       timeout: 3s
       retries: 5
@@ -127,11 +127,11 @@ services:
   chromadb:
     image: chromadb/chroma:latest
     ports:
-      - "9105:8000"
+      - "9105:8000"                     # 向量數據庫 API 端口
     volumes:
-      - chromadata:/chroma/chroma
+      - chromadata:/chroma/chroma        # 持久化向量存儲
     environment:
-      - IS_PERSISTENT=TRUE
+      - IS_PERSISTENT=TRUE               # 啟用持久化模式
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')\""]
       interval: 10s
@@ -141,25 +141,25 @@ services:
   ollama:
     image: ollama/ollama:latest
     ports:
-      - "9106:11434"
+      - "9106:11434"                    # Ollama API 端口
     volumes:
-      - ollama:/root/.ollama
+      - ollama:/root/.ollama            # 持久化模型存儲，避免重複下載
     # deploy:
     #   resources:
     #     reservations:
     #       devices:
     #         - driver: nvidia
     #           count: all
-    #           capabilities: [gpu]
+    #           capabilities: [gpu]       # 有 GPU 時取消註解
     healthcheck:
       test: ["CMD", "ollama", "list"]
-      interval: 30s
+      interval: 30s                     # 模型載入較慢，間隔較長
       timeout: 10s
       retries: 5
 
   # ==================== Mock 服務 ====================
   ad-api:
-    build: ./mocks/ad-api
+    build: ./mocks/ad-api               # 模擬 Active Directory API
     ports:
       - "9107:8090"
     healthcheck:
@@ -169,7 +169,7 @@ services:
       retries: 3
 
   hr-api:
-    build: ./mocks/hr-api
+    build: ./mocks/hr-api               # 模擬 HR 系統 API
     ports:
       - "9108:8091"
     healthcheck:
@@ -180,15 +180,15 @@ services:
 
   # ==================== Agents ====================
   mcp-service:
-    build: ./mcp_service
+    build: ./mcp_service                # MCP 協議服務，Agent 間通信的橋樑
     ports:
       - "9109:8083"
     environment:
-      - NATS_URL=nats://nats:4222
+      - NATS_URL=nats://nats:4222       # 連接 NATS 消息隊列
       - MCP_PORT=8083
     depends_on:
       nats:
-        condition: service_healthy
+        condition: service_healthy      # 等待 NATS 就緒後才啟動
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8083/healthz')\""]
       interval: 10s
@@ -196,18 +196,18 @@ services:
       retries: 3
 
   hr-agent:
-    build: ./agents/hr_agent
+    build: ./agents/hr_agent            # HR 專業 Agent
     ports:
       - "9110:8081"
     environment:
       - NATS_URL=nats://nats:4222
-      - HR_API_URL=http://hr-api:8091
+      - HR_API_URL=http://hr-api:8091   # 指向 Mock HR API
       - AGENT_PORT=8081
     depends_on:
       nats:
         condition: service_healthy
       hr-api:
-        condition: service_healthy
+        condition: service_healthy      # 等待 Mock HR API 就緒
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/healthz')\""]
       interval: 10s
@@ -215,18 +215,18 @@ services:
       retries: 3
 
   it-agent:
-    build: ./agents/it_agent
+    build: ./agents/it_agent            # IT 專業 Agent
     ports:
       - "9111:8082"
     environment:
       - NATS_URL=nats://nats:4222
-      - AD_API_URL=http://ad-api:8090
+      - AD_API_URL=http://ad-api:8090   # 指向 Mock AD API
       - AGENT_PORT=8082
     depends_on:
       nats:
         condition: service_healthy
       ad-api:
-        condition: service_healthy
+        condition: service_healthy      # 等待 Mock AD API 就緒
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8082/healthz')\""]
       interval: 10s
@@ -235,22 +235,22 @@ services:
 
   # ==================== CCA Agent ====================
   cca-agent:
-    build: ./agents/cca
+    build: ./agents/cca                 # 核心控制 Agent（CCA），整個平台的「大腦」
     ports:
       - "9112:8084"
     environment:
       - NATS_URL=nats://nats:4222
-      - MCP_SERVICE_URL=http://mcp-service:8083
-      - OLLAMA_URL=http://ollama:11434
-      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}
+      - MCP_SERVICE_URL=http://mcp-service:8083  # 通過 MCP 調用其他 Agent
+      - OLLAMA_URL=http://ollama:11434           # LLM 推理端點
+      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}      # 從 .env 讀取模型配置
       - CCA_PORT=8084
     depends_on:
       nats:
         condition: service_healthy
       mcp-service:
-        condition: service_healthy
+        condition: service_healthy      # 等待 MCP 服務就緒
       ollama:
-        condition: service_healthy
+        condition: service_healthy      # 等待 LLM 推理服務就緒
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8084/healthz')\""]
       interval: 10s
@@ -259,12 +259,12 @@ services:
 
   # ==================== Portal ====================
   portal-backend:
-    build: ./portal/backend
+    build: ./portal/backend             # FastAPI 後端
     ports:
       - "9113:8085"
     environment:
       - NATS_URL=nats://nats:4222
-      - CCA_URL=http://cca-agent:8084
+      - CCA_URL=http://cca-agent:8084   # 通過 NATS 與 CCA 通信
       - PORTAL_PORT=8085
     depends_on:
       cca-agent:
@@ -276,18 +276,18 @@ services:
       retries: 3
 
   portal-frontend:
-    build: ./portal/frontend
+    build: ./portal/frontend            # Next.js 14 前端
     ports:
-      - "9114:3000"
+      - "9114:3000"                     # 標準 Next.js 端口
     depends_on:
       portal-backend:
         condition: service_healthy
 
-volumes:
-  pgdata:
-  natsdata:
-  chromadata:
-  ollama:
+volumes:                                # 持久化卷，容器重啟數據不丟失
+  pgdata:                               # PostgreSQL 數據
+  natsdata:                             # NATS JetStream 數據
+  chromadata:                           # ChromaDB 向量數據
+  ollama:                               # Ollama 模型文件
 ```
 
 > **設計決策說明**：
@@ -324,26 +324,27 @@ from prompt import CCA_SYSTEM_PROMPT
 
 app = FastAPI(title="CCA Agent")
 
+# 從環境變量讀取服務地址（docker-compose.yml 設定）
 MCP_SERVICE_URL = os.getenv("MCP_SERVICE_URL", "http://mcp-service:8083")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b")
 
-llm = OllamaClient(base_url=OLLAMA_URL, model=LLM_MODEL)
+llm = OllamaClient(base_url=OLLAMA_URL, model=LLM_MODEL)  # LLM 推理客戶端
 
-# In-memory task store
+# 記憶體任務存儲（MVP 不使用 Redis/數據庫）
 tasks: dict = {}
 
 
 class TaskRequest(BaseModel):
-    content: str
-    user_id: str
+    content: str       # 用戶請求內容
+    user_id: str       # 發起用戶 ID
 
 
 class TaskStatus(BaseModel):
     task_id: str
-    status: str
+    status: str        # processing / completed / failed
     result: str | None = None
-    steps: list = []
+    steps: list = []   # 已執行的工具調用記錄
 
 
 @app.post("/task")
@@ -358,7 +359,7 @@ async def submit_task(request: TaskRequest):
         "result": None,
     }
 
-    # Fire-and-forget: process in background so endpoint returns immediately
+    # Fire-and-forget：背景執行 LLM 推理，端點立即返回 task_id
     asyncio.create_task(_run_task(task_id, request.content))
 
     return {"task_id": task_id, "status": "accepted"}
@@ -382,10 +383,10 @@ async def get_task(task_id: str):
 async def process_task(task_id: str, content: str):
     """Process a task through the LLM orchestration loop"""
     task = tasks[task_id]
-    max_iterations = 10
+    max_iterations = 10  # 安全閥門：防止 LLM 無限循環
 
     for i in range(max_iterations):
-        # Build prompt with conversation history
+        # 構建 prompt：將用戶請求 + 已執行步驟結果組合
         prompt = f"用戶請求：{content}\n\n"
         if task["steps"]:
             prompt += "已執行的步驟：\n"
@@ -393,34 +394,36 @@ async def process_task(task_id: str, content: str):
                 prompt += f"- {step['tool']}: {json.dumps(step['result'], ensure_ascii=False)}\n"
             prompt += "\n請根據以上結果決定下一步操作。如果所有步驟已完成，請提供最終回應。"
 
-        # Call LLM
+        # 調用 LLM 進行決策
         response_text = await llm.generate(prompt, CCA_SYSTEM_PROMPT)
 
-        # Parse LLM response
+        # 解析 LLM 回應（處理多種 JSON 格式）
         try:
-            if "```json" in response_text:
+            if "```json" in response_text:                    # markdown 代碼塊格式
                 json_str = response_text.split("```json")[1].split("```")[0]
-            elif "{" in response_text:
+            elif "{" in response_text:                         # 裸 JSON 格式
                 json_str = response_text[response_text.index("{"):response_text.rindex("}") + 1]
             else:
                 json_str = response_text
 
             response_data = json.loads(json_str)
         except json.JSONDecodeError:
-            # If LLM doesn't return valid JSON, treat as final response
+            # LLM 未返回有效 JSON，視為最終回應（降級處理）
             task["status"] = "completed"
             task["result"] = response_text
             return
 
-        # Check for tool calls
+        # 檢查是否有工具調用請求
         tool_calls = response_data.get("tool_calls", [])
         final_response = response_data.get("final_response")
 
+        # 無工具調用 + 有最終回應 = 任務完成
         if final_response and not tool_calls:
             task["status"] = "completed"
             task["result"] = final_response
             return
 
+        # 執行所有工具調用，記錄結果
         if tool_calls:
             for tc in tool_calls:
                 tool_name = tc["tool"]
@@ -429,12 +432,13 @@ async def process_task(task_id: str, content: str):
                 result = await call_mcp_tool(tool_name, arguments)
                 task["steps"].append({"tool": tool_name, "arguments": arguments, "result": result})
 
+        # 工具調用後，檢查是否有最終回應
         if final_response:
             task["status"] = "completed"
             task["result"] = final_response
             return
 
-    # Max iterations reached
+    # 超過最大迭代次數，強制結束
     task["status"] = "completed"
     task["result"] = "任務已處理完成（達到最大迭代次數）"
 
@@ -470,12 +474,12 @@ class OllamaClient:
     def __init__(self, base_url: str = "http://ollama:11434", model: str = "llama3:8b"):
         self.base_url = base_url
         self.model = model
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=600.0)
+        self.client = httpx.AsyncClient(base_url=base_url, timeout=600.0)  # 10 分鐘超時，CPU 推理較慢
 
     async def generate(self, prompt: str, system_prompt: str | None = None) -> str:
         messages = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "system", "content": system_prompt})  # 系統提示定義 Agent 行為
         messages.append({"role": "user", "content": prompt})
 
         response = await self.client.post(
@@ -483,10 +487,10 @@ class OllamaClient:
             json={
                 "model": self.model,
                 "messages": messages,
-                "stream": False,
+                "stream": False,              # MVP 使用非串流模式，等待完整回應
                 "options": {
-                    "temperature": 0.2,
-                    "num_predict": 2048,
+                    "temperature": 0.2,       # 低溫度 = 更確定性的 JSON 輸出
+                    "num_predict": 2048,      # 最大生成 token 數
                     "top_p": 0.9,
                 },
             },
@@ -517,7 +521,7 @@ app = FastAPI(title="MCP Service")
 
 NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
 
-# Tool registry: name → {description, agent_url, schema}
+# 工具註冊表：工具名稱 → {描述, Agent 地址, 參數結構}
 tools_registry: dict = {}
 
 
@@ -528,14 +532,14 @@ class ToolCallRequest(BaseModel):
 
 @app.on_event("startup")
 async def register_tools():
-    """Register tools from agents on startup"""
-    # In production, agents would self-register via NATS
-    # For MVP, we hardcode the known tools
+    """啟動時註冊所有可用工具"""
+    # 生產環境：Agent 通過 NATS 自動註冊
+    # MVP 階段：硬編碼已知工具（簡化實現）
     global tools_registry
     tools_registry = {
         "hr_agent_create_employee": {
             "description": "創建新員工記錄",
-            "agent_url": "http://hr-agent:8081",
+            "agent_url": "http://hr-agent:8081",  # HR Agent 地址
             "schema": {
                 "name": {"type": "string"},
                 "department": {"type": "string"},
@@ -550,7 +554,7 @@ async def register_tools():
         },
         "it_agent_create_ad_account": {
             "description": "創建 AD 賬戶",
-            "agent_url": "http://it-agent:8082",
+            "agent_url": "http://it-agent:8082",  # IT Agent 地址
             "schema": {
                 "username": {"type": "string"},
                 "display_name": {"type": "string"},
@@ -586,6 +590,7 @@ async def register_tools():
 
 @app.get("/mcp/tools/list")
 async def list_tools():
+    """列出所有可用工具（CCA 用於工具發現）"""
     return {
         "tools": [
             {"name": name, "description": info["description"], "schema": info["schema"]}
@@ -596,11 +601,12 @@ async def list_tools():
 
 @app.post("/mcp/tools/call")
 async def call_tool(request: ToolCallRequest):
+    """路由工具調用到對應的 Agent"""
     if request.name not in tools_registry:
         return {"error": f"Tool '{request.name}' not found"}
 
     tool = tools_registry[request.name]
-    agent_url = tool["agent_url"]
+    agent_url = tool["agent_url"]  # 目標 Agent 地址
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -632,16 +638,18 @@ import uuid
 
 app = FastAPI(title="IT Agent")
 
+# Mock AD API 地址（對接 mocks/ad-api 容器）
 AD_API_URL = os.getenv("AD_API_URL", "http://ad-api:8090")
 
 
 class ToolCallRequest(BaseModel):
-    tool: str
-    arguments: dict
+    tool: str         # 工具名稱（由 MCP Service 路由）
+    arguments: dict   # 工具參數
 
 
 @app.post("/execute")
 async def execute_tool(request: ToolCallRequest):
+    # 工具路由表：工具名稱 → 處理函數
     tool_map = {
         "it_agent_create_ad_account": create_ad_account,
         "it_agent_check_username": check_username,
@@ -657,6 +665,7 @@ async def execute_tool(request: ToolCallRequest):
 
 
 async def create_ad_account(args: dict) -> dict:
+    # 生成隨機臨時密碼（8 字元 + 特殊字符）
     temp_password = f"Temp{uuid.uuid4().hex[:8]}!"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -677,13 +686,14 @@ async def create_ad_account(args: dict) -> dict:
         "data": {
             "account_id": result["account_id"],
             "email": result["email"],
-            "temp_password": temp_password,
+            "temp_password": temp_password,  # 返回臨時密碼給 CCA
         },
         "message": f"已成功為 {args['display_name']} 創建 AD 賬戶",
     }
 
 
 async def check_username(args: dict) -> dict:
+    # GET 請求，timeout 較短（只做查詢）
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(
             f"{AD_API_URL}/v1/check-username/{args['username']}"
@@ -700,7 +710,9 @@ async def configure_permissions(args: dict) -> dict:
     department = args.get("department", "")
     role = args.get("role", "")
 
+    # 基礎權限組（所有員工都有）
     base_groups = ["General Users", "Domain Users"]
+    # 部門特定權限組（映射表）
     dept_groups = {
         "市場部": ["Marketing Team", "Marketing Content"],
         "技術部": ["Engineering Team", "Dev Access"],
@@ -717,6 +729,7 @@ async def configure_permissions(args: dict) -> dict:
 
 
 async def send_notification(args: dict) -> dict:
+    # MVP：只返回成功，不做實際發送
     return {
         "status": "success",
         "data": {"sent": True},
@@ -743,16 +756,18 @@ import os
 
 app = FastAPI(title="HR Agent")
 
+# Mock HR API 地址（對接 mocks/hr-api 容器）
 HR_API_URL = os.getenv("HR_API_URL", "http://hr-api:8091")
 
 
 class ToolCallRequest(BaseModel):
-    tool: str
-    arguments: dict
+    tool: str         # 工具名稱
+    arguments: dict   # 工具參數
 
 
 @app.post("/execute")
 async def execute_tool(request: ToolCallRequest):
+    # 與 IT Agent 相同的路由模式：工具名稱 → 處理函數
     tool_map = {
         "hr_agent_create_employee": create_employee,
         "hr_agent_get_employee": get_employee,
@@ -786,6 +801,7 @@ async def create_employee(args: dict) -> dict:
 
 
 async def get_employee(args: dict) -> dict:
+    # GET 請求，timeout 較短（只做查詢）
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(
             f"{HR_API_URL}/v1/employees/{args['employee_id']}"
@@ -822,6 +838,7 @@ import uuid
 
 app = FastAPI(title="Mock AD API")
 
+# 記憶體存儲（MVP 不連接真實 AD/LDAP）
 accounts_db: dict = {}
 
 
@@ -830,14 +847,15 @@ class CreateAccountRequest(BaseModel):
     display_name: str
     department: str
     role: str
-    temp_password: str
+    temp_password: str   # IT Agent 生成的臨時密碼
 
 
 @app.post("/v1/accounts")
 async def create_account(request: CreateAccountRequest):
-    account_id = str(uuid.uuid4())
-    email = f"{request.username}@company.com"
+    account_id = str(uuid.uuid4())      # 生成唯一賬戶 ID
+    email = f"{request.username}@company.com"  # 電子郵件命名規則
 
+    # 存入記憶體數據庫
     accounts_db[account_id] = {
         "account_id": account_id,
         "username": request.username,
@@ -857,6 +875,7 @@ async def create_account(request: CreateAccountRequest):
 
 @app.get("/v1/check-username/{username}")
 async def check_username(username: str):
+    # 線性搜索檢查用戶名是否已被使用
     taken = any(a["username"] == username for a in accounts_db.values())
     return {"available": not taken}
 
@@ -884,6 +903,7 @@ import uuid
 
 app = FastAPI(title="Mock HR API")
 
+# 記憶體存儲（MVP 不連接真實 HR 系統）
 employees_db: dict = {}
 
 
@@ -896,8 +916,10 @@ class CreateEmployeeRequest(BaseModel):
 
 @app.post("/v1/employees")
 async def create_employee(request: CreateEmployeeRequest):
+    # 員工 ID 格式：EMP-{8位十六進位}，如 EMP-A3F2B1C9
     employee_id = f"EMP-{uuid.uuid4().hex[:8].upper()}"
 
+    # 存入記憶體數據庫
     employees_db[employee_id] = {
         "employee_id": employee_id,
         "name": request.name,
@@ -936,12 +958,12 @@ async def health():
 # 系統要求
 - Docker Desktop 4.0+ 或 Docker Engine 24.0+
 - Docker Compose V2
-- 至少 8GB RAM（推薦 16GB）
-- 至少 20GB 磁盤空間
+- 至少 8GB RAM（推薦 16GB）           # Ollama + PostgreSQL + ChromaDB 需要較多記憶體
+- 至少 20GB 磁盤空間                   # 模型文件 ~5GB + 向量數據 + 數據庫
 - 無需 GPU — 所有 LLM 推理在 CPU 上運行
 
 # 安裝 Ollama 模型（在服務啟動後執行）
-docker compose exec ollama ollama pull qwen2.5:7b
+docker compose exec ollama ollama pull qwen2.5:7b  # 下載 ~4.7GB 模型文件
 ```
 
 > **為什麼不需要 GPU？** MVP 選擇 `qwen2.5:7b`（~4.7GB）是因為它在 CPU 上的推理品質足夠驅動結構化 JSON 輸出。一個入職流程（3-5 個 tool call）大約需要 2-5 分鐘完成，這對演示來說完全可以接受。如果你有 NVIDIA GPU，可以在 docker-compose.yml 中取消 Ollama 服務的 GPU 限制，切換到 `qwen2.5:14b` 或 `llama3:8b` 獲得 5-10 倍的推理速度。
@@ -1007,17 +1029,17 @@ open http://localhost:9114
 ### 12.5.4 驗證服務
 
 ```bash
-# 檢查各服務健康狀態
-curl http://localhost:9109/healthz   # MCP Service
-curl http://localhost:9110/healthz   # HR Agent
-curl http://localhost:9111/healthz   # IT Agent
-curl http://localhost:9112/healthz   # CCA Agent
-curl http://localhost:9113/healthz   # Portal Backend
+# 檢查各服務健康狀態（每個服務都有 /healthz 端點）
+curl http://localhost:9109/healthz   # MCP Service — Agent 間通信橋樑
+curl http://localhost:9110/healthz   # HR Agent — 人力資源專業 Agent
+curl http://localhost:9111/healthz   # IT Agent — IT 支持專業 Agent
+curl http://localhost:9112/healthz   # CCA Agent — 核心控制 Agent（大腦）
+curl http://localhost:9113/healthz   # Portal Backend — Web 前端後端
 
-# 查看服務日誌
-docker compose logs -f cca-agent
-docker compose logs -f it-agent
-docker compose logs -f hr-agent
+# 查看服務日誌（-f 表示持續追蹤，Ctrl+C 退出）
+docker compose logs -f cca-agent    # CCA 日誌，觀察 LLM 推理過程
+docker compose logs -f it-agent     # IT Agent 日誌，觀察工具調用
+docker compose logs -f hr-agent     # HR Agent 日誌，觀察員工創建流程
 ```
 
 ---
@@ -1136,10 +1158,10 @@ CCA 的核心是 `process_task()` 函數——一個最大 10 次迭代的 LLM �
 async def process_task(task_id: str, content: str):
     """Process a task through the LLM orchestration loop"""
     task = tasks[task_id]
-    max_iterations = 10
+    max_iterations = 10  # 安全閥門：防止 LLM 無限循環
 
     for i in range(max_iterations):
-        # Build prompt with conversation history
+        # 構建 prompt：將用戶請求 + 已執行步驟結果組合
         prompt = f"用戶請求：{content}\n\n"
         if task["steps"]:
             prompt += "已執行的步驟：\n"
@@ -1147,34 +1169,36 @@ async def process_task(task_id: str, content: str):
                 prompt += f"- {step['tool']}: {json.dumps(step['result'], ensure_ascii=False)}\n"
             prompt += "\n請根據以上結果決定下一步操作。如果所有步驟已完成，請提供最終回應。"
 
-        # Call LLM
+        # 調用 LLM 進行決策（帶系統提示）
         response_text = await llm.generate(prompt, CCA_SYSTEM_PROMPT)
 
-        # Parse LLM response
+        # 解析 LLM 回應（處理多種 JSON 格式）
         try:
-            if "```json" in response_text:
+            if "```json" in response_text:                    # 處理 markdown 代碼塊格式
                 json_str = response_text.split("```json")[1].split("```")[0]
-            elif "{" in response_text:
+            elif "{" in response_text:                         # 處理裸 JSON 格式
                 json_str = response_text[response_text.index("{"):response_text.rindex("}") + 1]
             else:
                 json_str = response_text
 
             response_data = json.loads(json_str)
         except json.JSONDecodeError:
-            # If LLM doesn't return valid JSON, treat as final response
+            # LLM 未返回有效 JSON，視為最終回應（降級處理）
             task["status"] = "completed"
             task["result"] = response_text
             return
 
-        # Check for tool calls
+        # 檢查是否有工具調用請求
         tool_calls = response_data.get("tool_calls", [])
         final_response = response_data.get("final_response")
 
+        # 無工具調用 + 有最終回應 = 任務完成
         if final_response and not tool_calls:
             task["status"] = "completed"
             task["result"] = final_response
             return
 
+        # 執行所有工具調用，記錄結果
         if tool_calls:
             for tc in tool_calls:
                 tool_name = tc["tool"]
@@ -1183,12 +1207,13 @@ async def process_task(task_id: str, content: str):
                 result = await call_mcp_tool(tool_name, arguments)
                 task["steps"].append({"tool": tool_name, "arguments": arguments, "result": result})
 
+        # 工具調用後，檢查是否有最終回應
         if final_response:
             task["status"] = "completed"
             task["result"] = final_response
             return
 
-    # Max iterations reached
+    # 超過最大迭代次數，強制結束
     task["status"] = "completed"
     task["result"] = "任務已處理完成（達到最大迭代次數）"
 ```
@@ -1213,12 +1238,12 @@ class OllamaClient:
     def __init__(self, base_url: str = "http://ollama:11434", model: str = "llama3:8b"):
         self.base_url = base_url
         self.model = model
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=600.0)
+        self.client = httpx.AsyncClient(base_url=base_url, timeout=600.0)  # 10 分鐘超時，CPU 推理較慢
 
     async def generate(self, prompt: str, system_prompt: str | None = None) -> str:
         messages = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "system", "content": system_prompt})  # 系統提示定義 Agent 行為
         messages.append({"role": "user", "content": prompt})
 
         response = await self.client.post(
@@ -1226,10 +1251,10 @@ class OllamaClient:
             json={
                 "model": self.model,
                 "messages": messages,
-                "stream": False,
+                "stream": False,              # MVP 使用非串流模式，等待完整回應
                 "options": {
-                    "temperature": 0.2,
-                    "num_predict": 2048,
+                    "temperature": 0.2,       # 低溫度 = 更確定性的 JSON 輸出
+                    "num_predict": 2048,      # 最大生成 token 數
                     "top_p": 0.9,
                 },
             },
@@ -1270,16 +1295,16 @@ import yaml
 from pathlib import Path
 
 class KnowledgeBaseBuilder:
-    """知識庫構建器"""
+    """知識庫構建器 — 初始化 Agent 的 RAG 知識來源"""
 
     def __init__(self, chromadb_url: str = "http://chromadb:8000"):
-        self.client = chromadb.HttpClient(host=chromadb_url)
+        self.client = chromadb.HttpClient(host=chromadb_url)  # 連接 ChromaDB 向量數據庫
 
     def seed_hr_policies(self):
-        """初始化 HR 政策文檔"""
+        """初始化 HR 政策文檔到向量數據庫"""
         collection = self.client.get_or_create_collection(
             name="hr_policies",
-            metadata={"hnsw:space": "cosine"}
+            metadata={"hnsw:space": "cosine"}  # 使用餘弦相似度進行語義搜索
         )
 
         hr_docs = [
@@ -1342,10 +1367,10 @@ class KnowledgeBaseBuilder:
         print(f"✅ 已初始化 {len(hr_docs)} 個 HR 政策文檔")
 
     def seed_it_knowledge(self):
-        """初始化 IT 知識庫"""
+        """初始化 IT 知識庫（AD 賬戶管理指南）"""
         collection = self.client.get_or_create_collection(
             name="it_knowledge",
-            metadata={"hnsw:space": "cosine"}
+            metadata={"hnsw:space": "cosine"}  # 餘弦相似度，適合文本語義搜索
         )
 
         it_docs = [
@@ -1398,18 +1423,18 @@ if __name__ == "__main__":
 
 ```bash
 #!/bin/bash
-# scripts/seed_knowledge.sh
+# scripts/seed_knowledge.sh — 知識庫初始化腳本（容器內執行）
 
 echo "等待 ChromaDB 啟動..."
 until curl -s http://chromadb:8000/api/v1/heartbeat > /dev/null 2>&1; do
-  sleep 2
+  sleep 2  # 重試間隔 2 秒
 done
 
 echo "初始化知識庫..."
-python -m knowledge.base_builder
+python -m knowledge.base_builder  # 執行 KnowledgeBaseBuilder.seed_all()
 
 echo "驗證知識庫..."
-curl -s http://chromadb:8000/api/v1/collections | python -m json.tool
+curl -s http://chromadb:8000/api/v1/collections | python -m json.tool  # 列出所有 collection
 
 echo "✅ 知識庫準備就緒"
 ```
@@ -1422,7 +1447,7 @@ echo "✅ 知識庫準備就緒"
 
 ```python
 # tests/test_e2e_onboarding.py
-"""E2E tests for the onboarding flow"""
+"""E2E tests for the onboarding flow — 驗證管道是否暢通"""
 import pytest
 import httpx
 import asyncio
@@ -1433,12 +1458,12 @@ MCP_URL = "http://localhost:9109"
 
 @pytest.fixture
 def client():
-    return httpx.AsyncClient(timeout=60.0)
+    return httpx.AsyncClient(timeout=60.0)  # 60 秒超時，適配 CPU 推理速度
 
 
 @pytest.mark.asyncio
 async def test_agent_health(client):
-    """Test all service health endpoints"""
+    """測試所有核心服務的健康端點"""
     services = [
         ("MCP Service", f"{MCP_URL}/healthz"),
         ("CCA Agent", f"{CCA_URL}/healthz"),
@@ -1451,18 +1476,18 @@ async def test_agent_health(client):
 
 @pytest.mark.asyncio
 async def test_tool_discovery(client):
-    """Test MCP tool discovery"""
+    """測試 MCP 工具發現 — 驗證 Agent 能看到可用工具"""
     response = await client.get(f"{MCP_URL}/mcp/tools/list")
     assert response.status_code == 200
     tools = response.json()["tools"]
     tool_names = [t["name"] for t in tools]
-    assert "hr_agent_create_employee" in tool_names
-    assert "it_agent_create_ad_account" in tool_names
+    assert "hr_agent_create_employee" in tool_names     # HR Agent 工具
+    assert "it_agent_create_ad_account" in tool_names   # IT Agent 工具
 
 
 @pytest.mark.asyncio
 async def test_tool_call_direct(client):
-    """Test direct tool call via MCP"""
+    """測試直接工具調用 — 繞過 LLM，直接驗證 MCP 通訊"""
     response = await client.post(
         f"{MCP_URL}/mcp/tools/call",
         json={
@@ -1473,12 +1498,12 @@ async def test_tool_call_direct(client):
     assert response.status_code == 200
     result = response.json()
     assert result["status"] == "success"
-    assert result["data"]["available"] is True
+    assert result["data"]["available"] is True  # 用戶名可用
 
 
 @pytest.mark.asyncio
 async def test_task_submission(client):
-    """Test task submission to CCA"""
+    """測試任務提交到 CCA — 驗證 CCA 能接受任務"""
     response = await client.post(
         f"{CCA_URL}/task",
         json={
@@ -1489,12 +1514,12 @@ async def test_task_submission(client):
     assert response.status_code == 200
     result = response.json()
     assert "task_id" in result
-    assert result["status"] == "accepted"
+    assert result["status"] == "accepted"  # 任務被接受（非立即完成）
 
 
 @pytest.mark.asyncio
 async def test_concurrent_requests(client):
-    """Test concurrent task submissions"""
+    """測試併發任務提交 — 驗證平台能處理多個同時請求"""
 
     async def submit_task(i):
         return await client.post(
@@ -1505,8 +1530,8 @@ async def test_concurrent_requests(client):
             },
         )
 
-    tasks = [submit_task(i) for i in range(5)]
-    responses = await asyncio.gather(*tasks)
+    tasks = [submit_task(i) for i in range(5)]  # 同時提交 5 個任務
+    responses = await asyncio.gather(*tasks)     # 並行執行
 
     for resp in responses:
         assert resp.status_code == 200
