@@ -17,7 +17,7 @@
 | [第 1 章](chapter-01.md) | 智能平台的黎明 — AI Native Agent Platform 的願景與挑戰 | AI Native 與 Agent-Driven 定義、Agent 核心特徵、企業級智能平台趨勢、超越傳統 ERP/CRM、CMU AIEBoK 框架指引、架構方法論、目標讀者與前置知識、ROI 分析與商業論證、市場定位與競爭分析 |
 | [第 2 章](chapter-02.md) | 核心架構藍圖 — 一個 Agent 生態系統 | 平台頂層視圖與設計哲學、CCA 七大核心職責、Specialized Agents 設計、MCP Service 標準化通信、A2A Agent-to-Agent 通信模式、Letta Agent Framework 集成、Portal Platform 人機交互、Cloud-Native 基礎、組件交互全景（完整請求旅程） |
 | [第 3 章](chapter-03.md) | AI Native 的基石 — Agent 的智能與協同 | LLM 選型五維度權衡、Prompt Engineering for Agents、Agent 協同模式與 LangGraph 工作流編排、記憶與知識獲取（Working/Archival/RAG）、可信度、安全與倫理考量 |
-| [第 4 章](chapter-04.md) | 雲原生技術棧的選擇與理由 | Docker 容器化最佳實踐、Kubernetes 核心概念、Istio 服務網格、OpenTelemetry 統一遙測、開源工具棧總覽、NATS 高性能消息隊列、Helm Charts 應用打包、CI/CD Pipeline 基礎 |
+| [第 4 章](chapter-04.md) | 雲原生技術棧的選擇與理由 | Docker 容器化最佳實踐、Kubernetes 核心概念、Istio 服務網格、OpenTelemetry 統一遙測、NATS 高性能消息隊列、開源工具棧總覽、Helm Charts 應用打包、CI/CD Pipeline 基礎 |
 
 ### 階段二：細節深耕 (Deep Dive) - 組件設計與技術選型
 

@@ -346,6 +346,92 @@ class AgentEvaluator:
         }
 ```
 
+**幻覺偵測的實踐方法**：
+
+上表中「幻覺率」是最難自動化衡量的指標。以下三種方法可以組合使用：
+
+| 方法 | 原理 | 優點 | 缺點 |
+|------|------|------|------|
+| **事實比對（Grounding Check）** | 將 Agent 輸出與知識庫（RAG 檢索結果）逐條比對，找出無據可查的陳述 | 自動化程度高，可即時攔截 | 只能偵測「無來源」的幻覺，無法發現「有來源但曲解」的幻覺 |
+| **LLM-as-Judge** | 用另一個 LLM（或同一個 LLM 的獨立調用）審查 Agent 輸出的事實正確性 | 能偵測邏輯矛盾和曲解 | 成本翻倍，且 Judge 本身也可能出錯 |
+| **人工抽樣審計** | 隨機抽取 5-10% 的 Agent 任務結果，由領域專家標記正確性 | 金標準，可發現自動化方法遺漏的問題 | 成本高、延遲大，無法即時攔截 |
+
+實際建議：**以「事實比對」為第一道防線（即時攔截），「LLM-as-Judge」為第二道防線（批次審查），「人工抽樣」為校準手段（每月調整前兩道防線的閾值）**。
+
+**自動化審計流程**：
+
+在企業環境中，公平性和偏見審計不應依賴人工抽查，而應建構自動化的反事實測試（Counterfactual Testing）管線：
+
+```python
+import json
+from datetime import datetime
+
+@dataclass
+class AuditScenario:
+    """反事實測試場景 — 同一請求，僅替換人員標識"""
+    task_type: str                # 測試的任務類型（如 "create_account"）
+    original: dict                # 原始請求參數
+    counterfactual: dict          # 替換後的請求參數（僅改姓名/部門等非功能欄位）
+    expected_outcome: str         # 預期結果應完全一致
+
+class AutomatedAuditor:
+    """自動化公平性審計器"""
+
+    def __init__(self, agent_executor):
+        self.executor = agent_executor
+        self.audit_log: list[dict] = []
+
+    async def run_counterfactual_test(self, scenario: AuditScenario) -> dict:
+        """執行一組反事實測試"""
+        # 執行原始場景
+        result_a = await self.executor(scenario.original)
+        # 執行反事實場景（僅改變人員標識）
+        result_b = await self.executor(scenario.counterfactual)
+
+        # 比較兩者是否一致
+        is_consistent = self._compare_results(result_a, result_b)
+
+        record = {
+            "timestamp": datetime.now().isoformat(),
+            "task_type": scenario.task_type,
+            "consistent": is_consistent,
+            "original_result": result_a,
+            "counterfactual_result": result_b,
+        }
+        self.audit_log.append(record)
+        return record
+
+    def _compare_results(self, a: dict, b: dict) -> bool:
+        """比較兩個結果是否語義一致（忽略人員標識）"""
+        # 比較結構和核心字段，忽略姓名等標識欄位
+        keys_to_compare = [k for k in a.keys() if k not in ("name", "employee_id")]
+        return all(a.get(k) == b.get(k) for k in keys_to_compare)
+
+    def generate_audit_report(self) -> dict:
+        """生成審計報告"""
+        total = len(self.audit_log)
+        inconsistencies = [r for r in self.audit_log if not r["consistent"]]
+        return {
+            "total_scenarios": total,
+            "inconsistencies": len(inconsistencies),
+            "fairness_score": 1 - len(inconsistencies) / total if total > 0 else 1.0,
+            "details": inconsistencies,
+        }
+```
+
+**持續改進閉環**：
+
+評估體系建立後，關鍵在於形成「衡量 → 分析 → 改進 → 驗證」的閉環：
+
+| 階段 | 動作 | 頻率 |
+|------|------|------|
+| **衡量** | 收集指標數據，寫入時序數據庫（Prometheus） | 即時（每個任務） |
+| **分析** | 每週回顧指標趨勢，識別劣化信號（如幻覺率上升、延遲增長） | 每週 |
+| **改進** | 根據分析結果調整 Prompt、RAG 召回策略、權限規則或工作流 | 按需 |
+| **驗證** | 改進後用 A/B 測試或金標準數據集驗證效果 | 每次改進後 |
+
+一個常見的改進入口是**失敗案例分析**：從「最終成功但首次失敗」的任務中提取模式 — 是 Prompt 不夠明確？是 RAG 沒有召回相關知識？還是 Agent 之間的通信出了問題？這些模式化的失敗原因直接指向具體的改進方向。
+
 ---
 
 ## 3.2 Agent 協同模式與工作流編排
@@ -512,9 +598,54 @@ graph TB
     end
 ```
 
+**何時使用哪種記憶**：
+
+每種記憶類型解決不同的問題，選擇取決於「信息的存留時間」和「使用方式」：
+
+| 記憶類型 | 存留時間 | 存儲位置 | 典型用途 | 本平台的實現 |
+|----------|----------|----------|----------|-------------|
+| **短期記憶（對話緩衝）** | 單次對話（分鐘~小時） | Agent 內存 | 保持當前對話的上下文連貫性 | Letta 的 `memory_limit` 設定（保留最近 N 輪） |
+| **短期記憶（任務上下文）** | 單次任務（分鐘~天） | Agent 內存 | 跟蹤多步驟任務的執行進度 | LangGraph 的 State 對象 |
+| **情節記憶** | 永久（定期清理） | PostgreSQL | 記錄歷史任務的完整過程，用於審計和模式學習 | Letta 的 archival memory |
+| **語義記憶** | 永久（按需更新） | 向量數據庫 | 檢索領域知識（政策、SOP、FAQ） | RAG 系統（ChromaDB） |
+| **程序記憶** | 永久（版本化） | 文件系統 + DB | 積累成功的任務模板，提高未來執行效率 | Letta 的 archival memory + Prompt 動態注入 |
+
+一個實用的判斷標準：**如果信息需要跨對話保留，就放入長期記憶；如果信息需要被精確檢索，就放入語義記憶（向量數據庫）；如果信息是「做事的經驗」，就放入程序記憶**。
+
 ### 3.3.2 RAG：檢索增強生成
 
-RAG 是 Agent 獲取企業知識的主要機制。以下是一個面向 Agent 的 RAG 實現：
+**什麼是 RAG？**
+
+RAG（Retrieval-Augmented Generation，檢索增強生成）是一種結合「檢索」和「生成」的技術架構。簡單來說：LLM 本身只知道自己訓練數據中的知識，對企業內部的政策、SOP、最新資料一無所知。RAG 讓 LLM 在回答問題之前，先從企業文檔中檢索相關內容，再將檢索結果作為上下文注入 Prompt，讓 LLM 基於這些「有據可查」的資料來生成回答。
+
+**RAG 與 LLM 的關係**：
+
+```
+傳統 LLM 調用：
+  用戶提問 → LLM（僅依賴自身訓練知識）→ 回答（可能過時或不準確）
+
+RAG 增強後：
+  用戶提問 → 向量檢索（從企業文檔中找相關片段）→ LLM（基於檢索結果生成）→ 回答（有據可查、可溯源）
+```
+
+核心思想：**不要讓 LLM 憑空回答，而是先給它「參考資料」**。這解決了三個企業級痛點：（1）LLM 不知道企業內部信息；（2）LLM 可能產生幻覺（編造事實）；（3）回答無法追溯到具體來源。
+
+**如何構建一個 Agent 專用的 RAG 系統**：
+
+構建過程分為兩個階段 — 離線的「索引建立」和在線的「檢索生成」：
+
+| 階段 | 步驟 | 說明 |
+|------|------|------|
+| **離線：索引建立** | 1. 文檔收集 | 收集 HR 政策、IT SOP、FAQ 等文檔（PDF、Markdown、Word） |
+| | 2. 文檔切分 | 將長文檔切分為 500-1000 字的片段（chunk），確保每個片段語義完整 |
+| | 3. 向量化 | 用 Embedding 模型（如 `text-embedding-3-small`）將文本片段轉為向量 |
+| | 4. 存入向量數據庫 | 將向量與原始文本一起存入 ChromaDB，建立索引 |
+| **在線：檢索生成** | 1. 查詢向量化 | 將用戶問題轉為向量 |
+| | 2. 相似度檢索 | 在向量數據庫中找出最相關的 Top-K 個文檔片段 |
+| | 3. 上下文注入 | 將檢索到的片段拼入 Prompt 的上下文區塊 |
+| | 4. LLM 生成 | LLM 基於檢索結果生成回答，每個關鍵陳述可追溯到具體文檔 |
+
+以下是一個面向 Agent 的 RAG 實現：
 
 ```python
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
@@ -696,7 +827,7 @@ permissions:
 - **語言公平**：對中英文混合輸入的處理能力一致
 - **避免刻板印象**：在涉及人員相關決策時，不應基於性別、年齡等因素產生偏見
 
-實踐建議：定期對 Agent 的決策進行公平性審計，使用對比測試（Counterfactual Testing）驗證：僅改變員工的人口統計特徵，觀察 Agent 的決策是否改變。
+實踐建議：定期對 Agent 的決策進行公平性審計，使用**反事實測試（Counterfactual Testing）**驗證：保持請求內容不變，僅替換員工的姓名、部門等標識信息，觀察 Agent 的決策和輸出是否保持一致。例如，將「為張小明創建帳號」和「為 John Smith 創建帳號」輸入同一個 Agent，比較兩者的處理流程和結果是否相同。
 
 ---
 

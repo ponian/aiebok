@@ -242,7 +242,7 @@ spec:
 | **Docker Compose** | 極其簡單，本地開發友好 | 無自動擴展、無服務發現、無滾動更新 | 本地開發與測試 |
 | **Kubernetes** | 功能最全面，生態最成熟 | 學習曲線陡峭，運維複雜 | 生產環境、企業級部署 |
 | **Nomad** | 比 K8s 簡單，支持多種工作負載 | 生態較小，社區規模不及 K8s | 中小規模部署 |
-| **Serverless (Knative)** | 按需擴展到零，成本最優 | 冷啟動延遲，不適合長時間運行的 Agent | 事件驅動的輕量任務 |
+| **Serverless (Knative)** | 無流量時自動縮減至零副本（不產生費用），有請求時自動啟動 | 冷啟動延遲（模型載入可能需數十秒），不適合長時間運行的 Agent | 事件驅動的輕量任務 |
 
 **我們的選擇邏輯**：Kubernetes 的學習曲線確實陡峭，但它提供了 Agent Platform 所需的所有核心能力 — 自動擴展、服務發現、滾動更新、健康檢查。對於企業級平台，這些能力不是「可有可無」，而是「必須具備」。我們將在第八章詳細講解 K8s 的實踐，並推薦學習資源幫助讀者克服學習曲線。
 
@@ -650,59 +650,9 @@ service:
 
 ---
 
-## 4.4 開源工具棧總覽與選型理由
+## 4.4 NATS：高性能消息隊列
 
-### 4.4.1 完整技術棧
-
-| 層級 | 技術 | 版本 | GitHub | 用途 | 授權 | 為什麼選擇 |
-|------|------|------|--------|------|------|-----------|
-| **Agent 框架** | Letta | v0.16.8 | [letta-ai/letta](https://github.com/letta-ai/letta) | Agent 定義與生命週期 | Apache 2.0 | 狀態持久化，記憶管理，社區活躍 |
-| **工作流編排** | LangGraph | v1.2.9 | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) | Agent 工作流狀態機 | MIT | LangChain 生態，狀態機模型直觀 |
-| **LLM 推理** | Ollama | v0.32.2 | [ollama/ollama](https://github.com/ollama/ollama) | 本地 LLM 運行 | MIT | 零成本，數據隱私，快速迭代 |
-| **通信協議** | gRPC + Protobuf | v1.82.1 | [grpc/grpc](https://github.com/grpc/grpc) | MCP 服務實現 | Apache 2.0 | 高性能，類型安全，跨語言 |
-| **消息隊列** | NATS | v2.14.3 | [nats-io/nats-server](https://github.com/nats-io/nats-server) | 異步消息傳遞 | Apache 2.0 | 輕量，高吞吐，雲原生 |
-| **容器編排** | Kubernetes | v1.36.2 | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) | 部署與資源管理 | Apache 2.0 | 行業標準，功能最全面 |
-| **服務網格** | Istio | v1.30.3 | [istio/istio](https://github.com/istio/istio) | 服務間安全與流量管理 | Apache 2.0 | 企業級 mTLS，流量控制 |
-| **遙測標準** | OpenTelemetry | v0.156.0 | [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-collector) | Trace/Metrics/Logs | Apache 2.0 | CNCF 標準，廠商無關 |
-| **指標監控** | Prometheus | v3.4.2 | [prometheus/prometheus](https://github.com/prometheus/prometheus) | 指標存儲與告警 | Apache 2.0 | 雲原生監控標準 |
-| **可視化** | Grafana | v13.1.0 | [grafana/grafana](https://github.com/grafana/grafana) | 儀表板與可視化 | AGPL | 功能強大，插件豐富 |
-| **日誌聚合** | Loki | v3.7.2 | [grafana/loki](https://github.com/grafana/loki) | 日誌存儲與查詢 | AGPL | 與 Grafana 深度集成，成本低 |
-| **分散式追蹤** | Jaeger | v2.20.0 | [jaegertracing/jaeger](https://github.com/jaegertracing/jaeger) | Trace 存儲與分析 | Apache 2.0 | CNCF 項目，Uber 開源 |
-| **Portal Frontend** | Next.js 16 + shadcn/ui | v16.2.10 / v4.13.0 | [vercel/next.js](https://github.com/vercel/next.js) / [shadcn-ui/ui](https://github.com/shadcn-ui/ui) | 現代化 React 框架，SSR/SSG | MIT | 生態豐富，性能優異 |
-| **Portal Backend** | FastAPI | v0.139.2 | [fastapi/fastapi](https://github.com/fastapi/fastapi) | 異步 Python Web 框架 | MIT | 與 Python Agent 無縫集成 |
-| **向量數據庫** | ChromaDB | v1.5.9 | [chroma-core/chroma](https://github.com/chroma-core/chroma) | RAG 向量存儲 | Apache 2.0 | 輕量級，易於嵌入 |
-
-### 4.4.2 免費雲端替代方案
-
-對於沒有本地 Kubernetes 集群的團隊，以下免費雲端方案可用於學習與 POC：
-
-| 雲端供應商 | 免費層級 | 適用場景 |
-|-----------|---------|---------|
-| **Oracle Cloud Free Tier** | 4 OCPU + 24GB RAM（ARM）永久免費 | 運行小型 K8s 集群（k3s） |
-| **Google Cloud Free Tier** | $300 試用金 + 每月免費配額 | GKE Autopilot 免費額度 |
-| **Azure Free Account** | $200 試用金 + 12 個月免費服務 | AKS 免費控制平面 |
-| **Civo** | $250 試用金 | K3s 託管集群 |
-| **本地方案** | Minikube / Kind / k3d | 開發與測試 |
-
-### 4.4.3 決策矩陣
-
-在面對技術選型時，我們建議使用以下決策矩陣：
-
-```
-評估維度（權重）：
-├── 功能匹配度（30%）：是否滿足核心需求？
-├── 社區活躍度（20%）：GitHub Stars、最近 commit、Issue 響應速度
-├── 授權合規性（15%）：MIT/Apache 2.0 優先，避免 GPL 污染
-├── 學習曲線（15%）：團隊現有技能匹配度
-├── 生態成熟度（10%）：文檔質量、第三方集成、書籍資源
-└── 長期維護（10%）：背後組織的可持續性（CNCF > 大公司 > 個人）
-```
-
----
-
-## 4.5 NATS：高性能消息隊列
-
-### 4.5.1 為什麼需要消息隊列
+### 4.4.1 為什麼需要消息隊列
 
 MCP Service 使用 gRPC 進行同步的上下文傳遞，但在以下場景中，異步消息隊列更為合適：
 
@@ -710,7 +660,7 @@ MCP Service 使用 gRPC 進行同步的上下文傳遞，但在以下場景中�
 - **流量削峰**：當大量用戶同時發起請求時，消息隊列緩衝峰值流量
 - **解耦**：Agent 不需要知道消費者的網絡地址
 
-### 4.5.2 NATS 核心概念
+### 4.4.2 NATS 核心概念
 
 NATS 是一個輕量級、高性能的雲原生消息系統：
 
@@ -721,7 +671,7 @@ NATS 是一個輕量級、高性能的雲原生消息系統：
 | **JetStream** | 持久化消息流，支持消費確認與重放 |
 | **Queue Groups** | 負載均衡，同一組內只有一個消費者收到消息 |
 
-### 4.5.3 在 Agent Platform 中的應用
+### 4.4.3 在 Agent Platform 中的應用
 
 NATS 在 Agent Platform 中主要用於**異步事件驅動**場景。與 gRPC 的同步調用不同，事件驅動模式下，Agent 發布事件後不等待響應，訂閱者在自己方便的時候處理事件。這種模式特別適合任務完成通知、審計日誌、跨系統同步等場景。
 
@@ -763,10 +713,60 @@ async def subscribe_task_events(nc):
 - **異步 vs 同步**：CCA 通過 gRPC 同步調用 Agent（需要立即結果），通過 NATS 異步接收事件（不需要立即處理）。兩種模式互補。
 - **消息編碼**：NATS 傳輸原始位元組，JSON 是最常見的序列化格式。如果需要更高效的編碼，可以考慮 Protobuf。
 
-### 4.5.4 推薦學習資源
+### 4.4.4 推薦學習資源
 
 1. **《NATS in Action》** — 了解 NATS 核心概念。
 2. **NATS 官方文檔** — https://docs.nats.io/ — JetStream、安全配置等。
+
+---
+
+## 4.5 開源工具棧總覽與選型理由
+
+### 4.5.1 完整技術棧
+
+| 層級 | 技術 | 版本 | GitHub | 用途 | 授權 | 為什麼選擇 |
+|------|------|------|--------|------|------|-----------|
+| **Agent 框架** | Letta | v0.16.8 | [letta-ai/letta](https://github.com/letta-ai/letta) | Agent 定義與生命週期 | Apache 2.0 | 狀態持久化，記憶管理，社區活躍 |
+| **工作流編排** | LangGraph | v1.2.9 | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) | Agent 工作流狀態機 | MIT | LangChain 生態，狀態機模型直觀 |
+| **LLM 推理** | Ollama | v0.32.2 | [ollama/ollama](https://github.com/ollama/ollama) | 本地 LLM 運行 | MIT | 零成本，數據隱私，快速迭代 |
+| **通信協議** | gRPC + Protobuf | v1.82.1 | [grpc/grpc](https://github.com/grpc/grpc) | MCP 服務實現 | Apache 2.0 | 高性能，類型安全，跨語言 |
+| **消息隊列** | NATS | v2.14.3 | [nats-io/nats-server](https://github.com/nats-io/nats-server) | 異步消息傳遞 | Apache 2.0 | 輕量，高吞吐，雲原生 |
+| **容器編排** | Kubernetes | v1.36.2 | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) | 部署與資源管理 | Apache 2.0 | 行業標準，功能最全面 |
+| **服務網格** | Istio | v1.30.3 | [istio/istio](https://github.com/istio/istio) | 服務間安全與流量管理 | Apache 2.0 | 企業級 mTLS，流量控制 |
+| **遙測標準** | OpenTelemetry | v0.156.0 | [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-collector) | Trace/Metrics/Logs | Apache 2.0 | CNCF 標準，廠商無關 |
+| **指標監控** | Prometheus | v3.4.2 | [prometheus/prometheus](https://github.com/prometheus/prometheus) | 指標存儲與告警 | Apache 2.0 | 雲原生監控標準 |
+| **可視化** | Grafana | v13.1.0 | [grafana/grafana](https://github.com/grafana/grafana) | 儀表板與可視化 | AGPL | 功能強大，插件豐富 |
+| **日誌聚合** | Loki | v3.7.2 | [grafana/loki](https://github.com/grafana/loki) | 日誌存儲與查詢 | AGPL | 與 Grafana 深度集成，成本低 |
+| **分散式追蹤** | Jaeger | v2.20.0 | [jaegertracing/jaeger](https://github.com/jaegertracing/jaeger) | Trace 存儲與分析 | Apache 2.0 | CNCF 項目，Uber 開源 |
+| **Portal Frontend** | Next.js 16 + shadcn/ui | v16.2.10 / v4.13.0 | [vercel/next.js](https://github.com/vercel/next.js) / [shadcn-ui/ui](https://github.com/shadcn-ui/ui) | 現代化 React 框架，SSR/SSG | MIT | 生態豐富，性能優異 |
+| **Portal Backend** | FastAPI | v0.139.2 | [fastapi/fastapi](https://github.com/fastapi/fastapi) | 異步 Python Web 框架 | MIT | 與 Python Agent 無縫集成 |
+| **向量數據庫** | ChromaDB | v1.5.9 | [chroma-core/chroma](https://github.com/chroma-core/chroma) | RAG 向量存儲 | Apache 2.0 | 輕量級，易於嵌入 |
+
+### 4.5.2 免費雲端替代方案
+
+對於沒有本地 Kubernetes 集群的團隊，以下免費雲端方案可用於學習與 POC：
+
+| 雲端供應商 | 免費層級 | 適用場景 |
+|-----------|---------|---------|
+| **Oracle Cloud Free Tier** | 4 OCPU + 24GB RAM（ARM）永久免費 | 運行小型 K8s 集群（k3s） |
+| **Google Cloud Free Tier** | $300 試用金 + 每月免費配額 | GKE Autopilot 免費額度 |
+| **Azure Free Account** | $200 試用金 + 12 個月免費服務 | AKS 免費控制平面 |
+| **Civo** | $250 試用金 | K3s 託管集群 |
+| **本地方案** | Minikube / Kind / k3d | 開發與測試 |
+
+### 4.5.3 決策矩陣
+
+在面對技術選型時，我們建議使用以下決策矩陣：
+
+```
+評估維度（權重）：
+├── 功能匹配度（30%）：是否滿足核心需求？
+├── 社區活躍度（20%）：GitHub Stars、最近 commit、Issue 響應速度
+├── 授權合規性（15%）：MIT/Apache 2.0 優先，避免 GPL 污染
+├── 學習曲線（15%）：團隊現有技能匹配度
+├── 生態成熟度（10%）：文檔質量、第三方集成、書籍資源
+└── 長期維護（10%）：背後組織的可持續性（CNCF > 大公司 > 個人）
+```
 
 ---
 
