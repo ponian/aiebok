@@ -64,36 +64,37 @@ gantt
 ### 11.2.3 MVP 技術架構
 
 ```yaml
-# mvp-stack.yaml
+# mvp-stack.yaml — MVP 階段技術棧配置
+# 設計原則：最小化複雜度，單進程部署，無需容器編排
 core:
   cca_agent:
-    type: single_process
-    llm: ollama/llama3:70b
-    memory: in_memory
+    type: single_process  # 單進程運行，適合 MVP 快速驗證
+    llm: ollama/llama3:70b  # 本地 LLM，無需 API Key
+    memory: in_memory  # 記憶體存儲，重啟後丟失（MVP 可接受）
 
   it_agent:
     type: single_process
-    tools: [create_ad_account, configure_permissions, send_notification]
+    tools: [create_ad_account, configure_permissions, send_notification]  # IT 操作工具集
     llm: ollama/llama3:70b
 
   mcp_service:
-    type: http_json_rpc
+    type: http_json_rpc  # HTTP JSON-RPC 協議，簡單易調試
     transport: http
-    auth: api_key
+    auth: api_key  # MVP 用 API Key，生產改用 JWT
 
 infrastructure:
-  database: sqlite  # MVP 階段用 SQLite
-  vector_store: chromadb
-  message_queue: none  # MVP 階段無需消息隊列
-  cache: in_memory
+  database: sqlite  # MVP 階段用 SQLite，無需安裝數據庫
+  vector_store: chromadb  # 輕量級向量數據庫
+  message_queue: none  # MVP 階段無需消息隊列，同步調用即可
+  cache: in_memory  # 進程內緩存
 
 monitoring:
-  logging: structlog
-  tracing: none  # MVP 階段暫不實現
-  metrics: none
+  logging: structlog  # 結構化日誌，便於調試
+  tracing: none  # MVP 階段暫不實現分散式追蹤
+  metrics: none  # MVP 階段暫不實現指標監控
 
 deployment:
-  mode: docker_compose
+  mode: docker_compose  # 單機 Docker Compose，適合開發/演示
   orchestration: docker-compose up
 ```
 
@@ -122,18 +123,19 @@ deployment:
 ### 11.3.3 架構演進
 
 ```yaml
-# phase2-stack.yaml
+# phase2-stack.yaml — Phase 2 功能完善階段技術棧
+# 關鍵升級：單進程 → K8s 部署，SQLite → PostgreSQL，無監控 → OTel 全棧
 core:
   cca_agent:
-    type: kubernetes_deployment
-    replicas: 2
+    type: kubernetes_deployment  # 升級為 K8s Deployment，支持自動擴展
+    replicas: 2  # 雙副本，提高可用性
     llm: ollama/llama3:70b
-    memory: postgresql
+    memory: postgresql  # 記憶體 → PostgreSQL，持久化 Agent 狀態
 
   hr_agent:
     type: kubernetes_deployment
     replicas: 2
-    tools: [query_employee, update_employee, query_policy]
+    tools: [query_employee, update_employee, query_policy]  # HR 專用工具集
     llm: ollama/llama3:70b
 
   it_agent:
@@ -145,22 +147,22 @@ core:
   mcp_service:
     type: http_json_rpc
     transport: http
-    auth: jwt
+    auth: jwt  # API Key → JWT，支持用戶級別權限控制
 
 infrastructure:
-  database: postgresql
+  database: postgresql  # SQLite → PostgreSQL，支持併發與事務
   vector_store: chromadb
-  message_queue: nats
-  cache: redis
+  message_queue: nats  # 新增 NATS，支持 Agent 間異步通信
+  cache: redis  # 新增 Redis，分佈式緩存 + 會話存儲
 
 monitoring:
-  logging: structlog + loki
-  tracing: opentelemetry + jaeger
-  metrics: opentelemetry + prometheus
+  logging: structlog + loki  # 新增 Loki，集中式日誌查詢
+  tracing: opentelemetry + jaeger  # 新增 OTel + Jaeger，分散式追蹤
+  metrics: opentelemetry + prometheus  # 新增 Prometheus，指標監控
 
 deployment:
-  mode: kubernetes
-  orchestration: helm charts
+  mode: kubernetes  # Docker Compose → Kubernetes，生產級編排
+  orchestration: helm charts  # Helm Charts 管理 K8s 資源
 ```
 
 ---
@@ -225,21 +227,22 @@ deployment:
 
 ```yaml
 # 每次部署都必須有回滾方案
+# 三級回滾策略：代碼 → 配置 → 完整，逐步升級
 rollback_strategy:
   - name: "代碼回滾"
-    trigger: "部署後 5 分鐘內錯誤率 > 10%"
-    action: "git revert + 重新部署"
-    max_time: "5 分鐘"
+    trigger: "部署後 5 分鐘內錯誤率 > 10%"  # 快速檢測代碼問題
+    action: "git revert + 重新部署"  # 回退代碼變更，重新構建映像
+    max_time: "5 分鐘"  # SLA：5 分鐘內完成
 
   - name: "配置回滾"
-    trigger: "配置變更導致服務異常"
-    action: "kubectl rollout undo deployment/<name>"
-    max_time: "2 分鐘"
+    trigger: "配置變更導致服務異常"  # K8s ConfigMap/Secret 變更
+    action: "kubectl rollout undo deployment/<name>"  # 回退到上一個 Revision
+    max_time: "2 分鐘"  # K8s 原生回滾，速度最快
 
   - name: "完整回滾"
-    trigger: "嚴重故障無法定位"
-    action: "切換到上一個穩定版本的 Helm Release"
-    max_time: "10 分鐘"
+    trigger: "嚴重故障無法定位"  # 最後手段，用於無法快速診斷的場景
+    action: "切換到上一個穩定版本的 Helm Release"  # Helm 原生回退
+    max_time: "10 分鐘"  # 包含數據庫遷移回退時間
 ```
 
 ---
