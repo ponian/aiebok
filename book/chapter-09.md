@@ -935,7 +935,7 @@ class CostAttribution:
             "total_tokens": sum(u.input_tokens + u.output_tokens for u in recent),
             "by_department": by_department,   # IT 部門花了多少、HR 部門花了多少
             "by_agent": by_agent,             # CCA 花了多少、IT Agent 花了多少
-            "by_model": by_model,             # GPT-4o 花了多少、Llama 花了多少
+            "by_model": by_model,             # Claude Opus 4 花了多少、Llama 花了多少
             "request_count": len(recent)
         }
 
