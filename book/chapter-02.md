@@ -36,11 +36,11 @@
 }}%%
 graph TD
     User[👤 End User] --> Portal[🖥️ Portal Platform]
-    Portal --> CCA[🧠 Central Coordinator Agent]
+    Portal --> CCA[🧠 Central<br/>Coordinator Agent]
 
-    CCA --> MCPSvc[(📡 MCP Service)]
-    CCA --> LangGraph[⚙️ LangGraph Orchestrator]
-    CCA --> AgentReg[📋 Agent Registry]
+    CCA --> MCPSvc[(📡 MCP<br/>Service)]
+    CCA --> LangGraph[⚙️ LangGraph<br/>Orchestrator]
+    CCA --> AgentReg[📋 Agent<br/>Registry]
 
     HRAgent --> AgentReg
     ITAgent --> AgentReg
@@ -57,7 +57,7 @@ graph TD
     MCPSvc --> ITAgent
     MCPSvc --> FinAgent
 
-    HRAgent --> DataLayer[(🗄️ Data & Knowledge Layer)]
+    HRAgent --> DataLayer[(🗄️ Data &<br/>Knowledge Layer)]
     ITAgent --> DataLayer
     FinAgent --> DataLayer
     CCA --> DataLayer
@@ -81,7 +81,7 @@ graph TD
 
     subgraph DataInfra["💾 Data & Infrastructure"]
         DataLayer
-        CloudNative[☁️ Cloud-Native Foundation]
+        CloudNative[☁️ Cloud-Native<br/>Foundation]
     end
 
     Portal -.-> CloudNative
@@ -91,12 +91,12 @@ graph TD
     ITAgent -.-> CloudNative
     FinAgent -.-> CloudNative
 
-    Letta[🔧 Letta Agent Framework] -.-> CCA
+    Letta[🔧 Letta Agent<br/>Framework] -.-> CCA
     Letta -.-> HRAgent
     Letta -.-> ITAgent
     Letta -.-> FinAgent
 
-    OTel[📊 OpenTelemetry] --> Monitoring[📈 Monitoring Backend<br/>Prometheus + Grafana + Loki + Jaeger]
+    OTel[📊 Open<br/>Telemetry] --> Monitoring[📈 Monitoring<br/>Backend<br/>Prometheus + Grafana<br/>+ Loki + Jaeger]
     CCA -.-> OTel
     HRAgent -.-> OTel
     ITAgent -.-> OTel
