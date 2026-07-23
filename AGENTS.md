@@ -8,22 +8,39 @@
 
 ```
 aiebok/
-├── book/                    # All chapter content
+├── book/                    # All chapter content (12 chapters, zh-TW)
 │   ├── README.md            # Book overview & TOC
-│   ├── chapter-01.md        # Ch1: Vision & Challenges
-│   ├── chapter-02.md        # Ch2: Core Architecture Blueprint
-│   ├── chapter-03.md        # Ch3: Agent Intelligence & Collaboration
-│   ├── chapter-04.md        # Ch4: Cloud-Native Tech Stack
-│   ├── chapter-05.md        # Ch5: CCA Implementation Details
-│   ├── chapter-06.md        # Ch6: Specialized Agents Construction
-│   ├── chapter-07.md        # Ch7: MCP Service Deep Dive
-│   ├── chapter-08.md        # Ch8: Kubernetes Deployment
-│   ├── chapter-09.md        # Ch9: OpenTelemetry Practice
-│   ├── chapter-10.md        # Ch10: Portal Platform
-│   ├── chapter-11.md        # Ch11: Implementation Roadmap
-│   └── chapter-12.md        # Ch12: Reference Implementation MVP
+│   └── chapter-{01..12}.md  # Chapters
+├── ai-agent-platform/       # Reference implementation (MVP code)
+│   ├── agents/              # cca/, hr_agent/, it_agent/
+│   ├── mcp_service/         # MCP tool registry & routing
+│   ├── mocks/               # ad-api/, hr-api/ (simulated backends)
+│   ├── portal/              # backend/ (FastAPI) + frontend/ (Next.js 14)
+│   ├── knowledge/           # RAG vector store setup
+│   ├── scripts/             # seed_knowledge.sh, verify_setup.sh
+│   ├── tests/               # test_e2e_onboarding.py, performance/
+│   └── docker-compose.yml   # Full stack orchestration (13 services)
 └── OpenRouter Chat*.md      # Design discussion transcript
 ```
+
+## REFERENCE IMPLEMENTATION
+
+`ai-agent-platform/` is the complete working code that Chapter 12 documents. It's a Docker Compose stack with 13 services.
+
+**Run it:**
+```bash
+cd ai-agent-platform
+cp .env.example .env
+docker compose up -d
+docker compose ps              # verify all healthy
+# Test: curl -X POST http://localhost:9112/task \
+#   -H "Content-Type: application/json" \
+#   -d '{"content": "新員工張小明明天入職市場部擔任產品經理", "user_id": "hr_manager_001"}'
+```
+
+**Prereqs:** Docker Compose V2, 16GB+ RAM, NVIDIA GPU recommended (Ollama).
+
+**Key ports:** CCA=9112, MCP=9109, HR Agent=9110, IT Agent=9111, Portal=9114, PostgreSQL=9101, NATS=9103.
 
 ## WHERE TO LOOK
 
