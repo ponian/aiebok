@@ -19,43 +19,59 @@
 
 **Agent 的 Dockerfile 最佳實踐**：
 
+以下 Dockerfile 展示了生產級 Agent 鏡像的構建過程。它採用 **多階段構建（Multi-Stage Build）** 模式 — 第一階段安裝依賴，第二階段只複製必要的文件到乾淨的基礎鏡像中。這種做法可以將最終鏡像體積減少 30-50%，因為構建工具（pip、編譯器等）不會留在最終鏡像中。
+
 ```dockerfile
 # cca-agent/Dockerfile
-# 使用多階段構建，減小最終鏡像體積
+
+# ===== 階段一：構建環境 =====
+# 使用 python:3.11-slim 作為基礎鏡像（比完整版小 60%+）
+# 'as builder' 為此階段命名，後續階段可以引用
 FROM python:3.11-slim as builder
 
 WORKDIR /app
 
-# 安裝依賴
+# 先複製 requirements.txt 再安裝 — 利用 Docker 的層緩存機制
+# 只有 requirements.txt 變化時才重新安裝依賴，代碼變化不會觸發重裝
 COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
+# --no-cache-dir: 不緩存 pip 下載，減小鏡像體積
+# --user: 安裝到用戶目錄而非系統目錄，避免權限問題
 
-# 最終運行鏡像
+# ===== 階段二：運行環境 =====
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# 從 builder 階段複製已安裝的依賴
+# 從 builder 階段只複製已安裝的 Python 包（不帶 pip 和構建工具）
 COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 
-# 複製應用代碼
+# 複製應用代碼（放在依賴安裝之後 — 代碼變動最頻繁，放最後利用緩存）
 COPY src/ ./src/
 
-# 安全：不使用 root 運行
+# 安全最佳實踐：創建專用用戶，不以 root 身份運行
+# K8s 的 SecurityContext 也建議配合 runAsNonRoot: true
 RUN useradd -m -u 1000 agent && chown -R agent:agent /app
 USER agent
 
-# 健康檢查
+# Docker 層面的健康檢查 — 與 K8s 的 livenessProbe 互補
+# K8s 會同時使用兩者，任何一個失敗都會觸發容器重啟
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD python -c "import httpx; httpx.get('http://localhost:8080/health')"
 
-# 暴露端口
-EXPOSE 8080
+EXPOSE 8080  # 聲明容器監聽的端口（文檔作用 + K8s containerPort 對應）
 
-# 啟動命令
+# 啟動命令 — 使用模組方式運行，支持信號處理和優雅關閉
 CMD ["python", "-m", "src.main"]
 ```
+
+**關鍵設計決策**：
+
+- **多階段構建**：Python 依賴安裝需要編譯工具（如 gcc），但運行時不需要。分離構建和運行環境，最終鏡像只包含 Python 運行時 + 依賴包 + 應用代碼，體積從 ~900MB 縮減到 ~200MB。
+- **層緩存優化**：`requirements.txt` 在 `COPY src/` 之前 — 因為代碼變動頻率遠高於依賴變動。這樣改代碼時不需要重新安裝 pip 包，構建速度提升 50%+。
+- **非 root 用戶**：以 `agent` 用戶運行是容器安全的基本要求。即使容器被突破，攻擊者也只獲得有限權限。K8s 的 `securityContext.runAsNonRoot: true` 可以強制執行此策略。
+- **HEALTHCHECK vs K8s Probes**：Docker HEALTHCHECK 用於本地 `docker-compose` 環境的健康檢查；在 K8s 中，`livenessProbe` 和 `readinessProbe` 承擔此職責。兩者同時存在可以覆蓋更多場景。
 
 ### 4.1.2 Kubernetes 核心概念
 
@@ -76,66 +92,82 @@ Kubernetes（K8s）是一個容器編排平台，管理容器化應用的部署�
 
 **（1）Agent 部署與副本管理**
 
+在 Kubernetes 中，**Deployment** 是管理無狀態應用的核心資源。它聲明式地定義了「我要什麼版本的鏡像、跑幾個副本、用什麼配置」，而 Kubernetes 會自動確保集群的實際狀態與你聲明的狀態一致 — 如果某個 Pod 崩潰，Deployment 會自動重建；如果你更新鏡像版本，Deployment 會執行滾動更新。
+
+以下是一個 CCA（中央協調 Agent）的完整 Deployment 配置，我們逐段解析：
+
 ```yaml
 # k8s/cca-agent.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cca-agent
-  namespace: ai-platform
+  name: cca-agent           # Deployment 的名稱，集群內唯一標識
+  namespace: ai-platform    # 所屬命名空間，用於邏輯隔離（如 dev/staging/prod）
   labels:
-    app: cca-agent
-    component: platform-core
+    app: cca-agent          # 標籤：用於選擇器匹配和資源組織
+    component: platform-core # 標記為平台核心組件，便於監控和策略應用
 spec:
-  replicas: 3  # 生產環境運行 3 個副本
+  replicas: 3  # 生產環境運行 3 個副本。3 個副本確保即使 1 個 Pod 宕機，服務仍然可用
   selector:
     matchLabels:
-      app: cca-agent
+      app: cca-agent  # Deployment 通過此標籤管理 Pod — 只管理帶有 app=cca-agent 的 Pod
   template:
     metadata:
       labels:
-        app: cca-agent
+        app: cca-agent  # Pod 標籤，必須與 selector.matchLabels 匹配
       annotations:
-        sidecar.istio.io/inject: "true"  # 自動注入 Istio Sidecar
+        sidecar.istio.io/inject: "true"  # 告訴 Istio 自動注入 Envoy Sidecar 容器
     spec:
       containers:
       - name: cca-agent
-        image: registry.company.com/ai-platform/cca-agent:v0.1.0
+        image: registry.company.com/ai-platform/cca-agent:v0.1.0  # 鏡像地址與版本標籤
         ports:
-        - containerPort: 8080
+        - containerPort: 8080  # 容器監聽的端口
         env:
+        # 從 ConfigMap 讀取非機密配置 — LLM 提供商可按環境切換
         - name: LLM_PROVIDER
           valueFrom:
             configMapKeyRef:
               name: platform-config
               key: llm_provider
+        # 從 Secret 讀取機密信息 — API Key 不會出現在 Pod 定義或鏡像中
         - name: ANTHROPIC_API_KEY
           valueFrom:
             secretKeyRef:
               name: llm-secrets
               key: anthropic-api-key
+        # 直接設定的環境變量 — MCP 服務的內部地址
         - name: MCP_SERVICE_URL
-          value: "mcp-service:50051"
+          value: "mcp-service:50051"  # 使用 K8s Service 名稱進行服務發現
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
+            # requests 是 Kubernetes 調度的依據 — 確保節點有足夠資源容納此 Pod
+            memory: "512Mi"  # 保留 512MB 內存
+            cpu: "250m"      # 保留 0.25 個 CPU 核心（250 millicores）
           limits:
-            memory: "2Gi"
-            cpu: "1000m"
+            # limits 是硬上限 — Pod 不得超過此值，否則可能被 OOM Kill 或 CPU 限流
+            memory: "2Gi"    # 最多使用 2GB 內存
+            cpu: "1000m"     # 最多使用 1 個 CPU 核心
+        # 存活探針：Kubernetes 定期檢查容器是否「活著」
+        # 如果探針失敗，Kubernetes 會重啟容器（處理死鎖、無響應等情況）
         livenessProbe:
           httpGet:
-            path: /health
+            path: /health    # 應用需實現此端點，返回 200 表示存活
             port: 8080
-          initialDelaySeconds: 15
-          periodSeconds: 20
+          initialDelaySeconds: 15  # 容器啟動後等待 15 秒才開始探測（留足初始化時間）
+          periodSeconds: 20        # 每 20 秒探測一次
+        # 就緒探針：決定 Pod 是否接受流量
+        # 在探針成功前，Pod 不會被加入 Service 的 Endpoints（即不接收請求）
         readinessProbe:
           httpGet:
-            path: /ready
+            path: /ready     # 應用需實現此端點，返回 200 表示就緒
             port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
+          initialDelaySeconds: 5   # 容器啟動後等待 5 秒
+          periodSeconds: 10        # 每 10 秒探測一次
 ---
+# Service 為一組 Pod 提供穩定的網絡入口
+# Pod 的 IP 是臨時的（重建後會變），但 Service 的 DNS 名稱永遠不變
+# 其他 Agent 可以通過 "http://cca-agent:80" 訪問 CCA，無需關心具體 Pod IP
 apiVersion: v1
 kind: Service
 metadata:
@@ -143,35 +175,51 @@ metadata:
   namespace: ai-platform
 spec:
   selector:
-    app: cca-agent
+    app: cca-agent  # 將流量路由到所有帶有 app=cca-agent 標籤的 Pod
   ports:
-  - port: 80
-    targetPort: 8080
+  - port: 80          # Service 監聽的端口（其他服務通過此端口訪問）
+    targetPort: 8080  # 轉發到 Pod 的哪個端口
 ```
+
+**關鍵設計決策**：
+
+- **3 個副本**：CCA 是平台的核心入口，單點故障會導致整個平台不可用。3 個副本提供冗餘，且支持在不停機的情況下進行滾動更新（始終有 ≥ 2 個 Pod 在服務）。
+- **resources 設定**：LLM 推理是 CPU 密集型操作，因此 CPU limits 設為 1 核；而 LLM 回應會在內存中緩存，因此 limits 設為 2Gi。`requests` 與 `limits` 之間的差距允許突發使用，但不影響集群調度。
+- **探針分離**：`livenessProbe` 檢查「容器是否還活著」（失敗 → 重啟），`readinessProbe` 檢查「容器是否能處理請求」（失敗 → 暫停接收流量）。兩者職責不同，間隔和超時設定也不同。
 
 **（2）自動擴展（HPA）**
 
+上一節的 Deployment 固定運行 3 個副本，但 Agent 平台的流量波動很大 — 工作日早上 9 點大量員工同時使用，凌晨幾乎無人。**Horizontal Pod Autoscaler（HPA）** 根據實際負載動態調整 Pod 數量，在流量高峰時擴展、低谷時縮減，兼顧性能與成本。
+
+HPA 的工作原理：每隔一段時間（默認 15 秒），HPA 控制器查詢各指標的實際值，與目標值比較後計算出期望的副本數。例如，當 CPU 平均使用率為 70% 而目標為 50% 時，HPA 會將副本數乘以 (70/50) = 1.4，即 3 × 1.4 = 4.2，向上取整為 5 個副本。
+
 ```yaml
 # k8s/cca-hpa.yaml
-apiVersion: autoscaling/v2
+apiVersion: autoscaling/v2  # v2 版本支持多指標和自定義指標
 kind: HorizontalPodAutoscaler
 metadata:
   name: cca-agent-hpa
   namespace: ai-platform
 spec:
-  scaleTargetRef:
+  scaleTargetRef:           # HPA 控制哪個 Deployment
     apiVersion: apps/v1
     kind: Deployment
-    name: cca-agent
-  minReplicas: 2
-  maxReplicas: 10
+    name: cca-agent         # 與上一節的 Deployment 名稱對應
+  minReplicas: 2            # 最少 2 個副本（即使完全空閒也不縮到 1，避免冷啟動延遲）
+  maxReplicas: 10           # 最多 10 個副本（防止失控擴展耗盡集群資源）
   metrics:
+  # 指標一：CPU 使用率
+  # 當所有 Pod 的平均 CPU 使用率超過 70% 時，HPA 擴展
+  # 當低於 70% 時，HPA 縮減（有冷卻期防止震盪）
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
         averageUtilization: 70
+  # 指標二：內存使用率
+  # LLM 推理可能導致內存突增，80% 閾值作為第二道防線
+  # HPA 會同時考量兩個指標，取最保守的擴展結果
   - type: Resource
     resource:
       name: memory
@@ -179,6 +227,13 @@ spec:
         type: Utilization
         averageUtilization: 80
 ```
+
+**關鍵設計決策**：
+
+- **minReplicas: 2**：HPA 允許縮減到 0（scale-to-zero），但 Agent 需要保持最低 2 個副本 — 首先是避免冷啟動延遲（LLM 模型載入可能需要數十秒），其次是確保在一次滾動更新期間仍有可用副本。
+- **maxReplicas: 10**：設上限是為了防止異常流量（如惡意請求）導致無限擴展。在生產環境中，建議配合 Cluster Autoscaler 實現節點級別的彈性伸縮。
+- **雙指標策略**：CPU 指標反映計算負載（LLM 推理密集度），內存指標反映狀態累積（對話歷史、RAG 緩存）。單一指標可能漏掉瓶頸 — 例如 CPU 低但內存高，表示 Agent 雖然不忙但已接近崩潰邊緣。
+- **閾值選擇**：CPU 70% 和內存 80% 是保守值。過低會導致頻繁擴縮（「震盪」），過高則可能在擴展完成前就出現延遲。建議在實際負載下觀察和調整。
 
 **（3）為什麼選擇 Kubernetes 而非更簡單的方案**
 
@@ -256,28 +311,36 @@ graph TB
 
 **（1）mTLS（雙向 TLS）加密**
 
-默認情況下，Istio 可以為所有服務間通信自動啟用 mTLS：
+在傳統 TLS 中，只有客戶端驗證服務端的身分。**mTLS（Mutual TLS）** 則是雙向驗證 — CCA 和 HR Agent 互相驗證對方的證書，確保通信雙方都是可信的。Istio 通過 Envoy Sidecar 自動完成證書的頒發、輪換和驗證，應用代碼完全無感知。
+
+以下配置在 `ai-platform` 命名空間中強制啟用 mTLS：
 
 ```yaml
 # istio/peer-authentication.yaml
 apiVersion: security.istio.io/v1beta1
-kind: PeerAuthentication
+kind: PeerAuthentication  # Istio 的認證策略資源
 metadata:
-  name: default
+  name: default            # 名稱為 'default' 表示對整個命名空間生效
   namespace: ai-platform
 spec:
   mtls:
-    mode: STRICT  # 強制所有服務間通信使用 mTLS
+    mode: STRICT           # STRICT: 拒絕所有未加密的明文通信
+                           # 備選: PERMISSIVE（同時允許加密和明文，用於過渡期）
+                           # 備選: DISABLE（關閉 mTLS，不建議用於生產）
 ```
 
-這意味著 CCA 與 HR Agent 之間的所有通信都自動加密，無需修改任何應用代碼。
+這意味著 CCA 與 HR Agent 之間的所有通信都自動加密，無需修改任何應用代碼。即使攻擊者在同一個 K8s 集群中，也無法嗅探 Agent 間的通信內容。
 
 **（2）流量管理：金絲雀發布**
 
-當我們要更新 IT Agent 到新版本時，可以先用少量流量驗證：
+金絲雀發布（Canary Release）是一種漸進式發布策略 — 先將少量流量導向新版本，觀察無異常後再逐步增加比例，直到 100% 切換。這比「全量發布」安全得多，因為新版本的問題只會影響一小部分用戶。
+
+Istio 的金絲雀發布由兩個資源協作實現：**VirtualService**（定義流量分配比例）和 **DestinationRule**（定義版本子集的標籤選擇器）。
 
 ```yaml
 # istio/it-agent-canary.yaml
+
+# VirtualService：定義「流量如何分配」
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -285,18 +348,19 @@ metadata:
   namespace: ai-platform
 spec:
   hosts:
-  - it-agent
+  - it-agent              # 匹配 Service 名稱 it-agent 的流量
   http:
   - route:
     - destination:
         host: it-agent
-        subset: v1
-      weight: 90    # 90% 流量到舊版本
+        subset: v1         # 引用 DestinationRule 中定義的 v1 子集
+      weight: 90           # 90% 流量到舊版本（穩定版）
     - destination:
         host: it-agent
-        subset: v2
-      weight: 10    # 10% 流量到新版本
+        subset: v2         # 引用 DestinationRule 中定義的 v2 子集
+      weight: 10           # 10% 流量到新版本（金絲雀）
 ---
+# DestinationRule：定義「版本子集如何選擇 Pod」
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -307,15 +371,22 @@ spec:
   subsets:
   - name: v1
     labels:
-      version: v1
+      version: v1          # 選擇帶有 label version=v1 的 Pod
   - name: v2
     labels:
-      version: v2
+      version: v2          # 選擇帶有 label version=v2 的 Pod
 ```
+
+**關鍵設計決策**：
+- **weight 分配**：從 10% 開始是保守做法。如果金絲雀版本的錯誤率和延遲都在預期範圍內，可以逐步調整為 30% → 50% → 100%。Istio 不會自動調整比例，需要手動更新或配合 Flagger 等工具實現自動化。
+- **標籤選擇器**：`DestinationRule` 通過 Pod 標籤區分版本，因此 Deployment 的 Pod template 必須包含對應的 `version` 標籤。
 
 **（3）熔斷與故障恢復**
 
+**熔斷器（Circuit Breaker）** 借鑑了電路中的熔斷概念 — 當下游服務出現故障時，主動「斷開」連接，防止請求積壓導致連鎖故障。Istio 通過 `DestinationRule` 的 `trafficPolicy` 實現熔斷。
+
 ```yaml
+# hr-agent-circuit-breaker.yaml
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -326,16 +397,20 @@ spec:
   trafficPolicy:
     connectionPool:
       http:
-        http1MaxPendingRequests: 50
-        maxRequestsPerConnection: 10
-    outlierDetection:
-      consecutive5xxErrors: 3
-      interval: 30s
-      baseEjectionTime: 60s
-      maxEjectionPercent: 50
+        http1MaxPendingRequests: 50   # 最多允許 50 個請求排隊等待連接
+                                      # 超過此值的請求會被立即拒絕（返回 503）
+        maxRequestsPerConnection: 10   # 每個連接最多處理 10 個請求後重建
+                                      # 防止長連接導致的資源洩漏
+    outlierDetection:                 # 異常檢測（即「熔斷」邏輯）
+      consecutive5xxErrors: 3         # 連續 3 次 5xx 錯誤 → 觸發熔斷
+      interval: 30s                   # 每 30 秒檢查一次錯誤計數
+      baseEjectionTime: 60s           # 熔斷後剔除 60 秒
+                                      # 每次連續熔斷，剔除時間加倍（指数退避）
+      maxEjectionPercent: 50          # 最多剔除 50% 的 Pod
+                                      # 確保即使部分 Pod 故障，仍有剩餘 Pod 可用
 ```
 
-當 HR Agent 連續返回 3 次 5xx 錯誤時，Istio 自動將其從負載均衡池中剔除 60 秒，防止連鎖故障。
+當 HR Agent 連續返回 3 次 5xx 錯誤時，Istio 自動將其從負載均衡池中剔除 60 秒，防止連鎖故障。60 秒後 Envoy 會嘗試發送「探測請求」，如果成功則恢復流量，否則繼續剔除。
 
 ### 4.2.4 Istio 的複雜性與權衡
 
@@ -412,58 +487,71 @@ graph LR
 
 ### 4.3.3 三大遙測信號
 
+OpenTelemetry 定義了三大信號類型，各自解決不同的可觀察性問題。它們通過統一的 Trace ID 關聯 — 當你在 Jaeger 中找到一個慢請求的 Trace，可以一鍵跳轉到對應的 Logs 和 Metrics。
+
 **（1）Trace（追蹤）**
 
-記錄一個請求經過所有組件的完整路徑：
+Trace 記錄一個請求從入口到出口的完整路徑。每個處理步驟是一個 **Span**，Span 之間有父子關係，形成一棵調用樹。以下是一個用戶請求觸發的真實 Trace 示例：
 
 ```
 Trace ID: abc123
-├── Span: Portal.handle_request (50ms)
-│   └── Span: CCA.process (7500ms)
-│       ├── Span: CCA.llm_reasoning (3000ms)
-│       ├── Span: MCP.send_context (100ms)
+├── Span: Portal.handle_request (50ms)        ← 入口：Portal 接收請求
+│   └── Span: CCA.process (7500ms)            ← CCA 整體處理時間（最長的 Span）
+│       ├── Span: CCA.llm_reasoning (3000ms)  ← LLM 推理是主要瓶頸
+│       ├── Span: MCP.send_context (100ms)    ← 通過 MCP 發送上下文到 HR Agent
 │       │   └── Span: HRAgent.query_employee (2000ms)
-│       │       └── Span: DB.query (800ms)
-│       ├── Span: MCP.send_context (100ms)
+│       │       └── Span: DB.query (800ms)    ← 數據庫查詢
+│       ├── Span: MCP.send_context (100ms)    ← 通過 MCP 發送上下文到 IT Agent
 │       │   └── Span: ITAgent.create_account (1500ms)
-│       │       └── Span: ADAPI.create (1200ms)
-│       └── Span: CCA.integrate_results (800ms)
+│       │       └── Span: ADAPI.create (1200ms) ← AD API 調用
+│       └── Span: CCA.integrate_results (800ms) ← 整合各 Agent 結果
 ```
+
+從這個 Trace 可以立即定位瓶頸：LLM 推理（3000ms）和 HR Agent 數據庫查詢（2000ms）是主要耗時。這比「用戶說系統慢」有用得多 — 你知道具體慢在哪裡。
 
 **（2）Metrics（指標）**
 
-持續採集的數值型指標：
+Metrics 是持續採集的數值型數據，用於監控系統的整體健康狀態。OTel 的 Metrics API 提供三種核心儀器類型，以下代碼展示如何在 CCA Agent 中初始化它們：
 
 ```python
 from opentelemetry import metrics
 
+# 創建 Meter — 每個服務使用獨立的 Meter，便於區分數據來源
 meter = metrics.get_meter("cca-agent")
 
-# 計數器：處理的請求總數
+# Counter（計數器）：只增不減，適合計數
+# 用途：計算總請求數、錯誤次數、成功次數
+# 在 Prometheus 中對應 _total 指標
 request_counter = meter.create_counter(
     name="cca.requests.total",
     description="CCA 處理的請求總數",
     unit="1"
 )
+# 使用方式: request_counter.add(1, {"status": "success", "agent": "hr-agent"})
 
-# 直方圖：LLM 推理延遲分佈
+# Histogram（直方圖）：記錄數值的分佈
+# 用途：延遲、響應大小等需要看 P50/P95/P99 的指標
+# 在 Prometheus 中對應 _bucket 和 _sum 指標
 llm_latency = meter.create_histogram(
     name="cca.llm.latency_ms",
     description="LLM 推理延遲",
     unit="ms"
 )
+# 使用方式: llm_latency.record(3200, {"model": "claude-opus-4"})
 
-# 儀表：當前活躍任務數
+# UpDownCounter（增減計數器）：可增可減，適合 Gauge 類指標
+# 用途：當前活躍連接數、隊列長度、正在處理的任務數
 active_tasks = meter.create_up_down_counter(
     name="cca.active_tasks",
     description="當前活躍任務數",
     unit="1"
 )
+# 使用方式: active_tasks.add(1)  ← 任務開始 / active_tasks.add(-1)  ← 任務結束
 ```
 
 **（3）Logs（日誌）**
 
-結構化日誌，與 Trace 關聯：
+結構化日誌是排查問題的第一手資料。關鍵實踐是將日誌與 Trace 關聯 — 通過在日誌中記錄 `trace_id`，可以在 Grafana 中從日誌直接跳轉到對應的分散式追蹤：
 
 ```python
 import logging
@@ -473,15 +561,20 @@ logger = logging.getLogger("cca-agent")
 
 async def process_request(request_id: str, user_input: str):
     tracer = trace.get_tracer("cca-agent")
+    # start_as_current_span 創建一個 Span，並設為當前上下文
+    # with 語句結束時 Span 自動結束（計時停止）
     with tracer.start_as_current_span("process_request") as span:
+        # 設置 Span 屬性 — 在 Jaeger 中可搜索和過濾
         span.set_attribute("request_id", request_id)
         span.set_attribute("user_input_length", len(user_input))
 
+        # 日誌中記錄 trace_id — 這是 Logs 與 Trace 關聯的橋樑
         logger.info(
             "Processing user request",
             extra={
                 "request_id": request_id,
                 "trace_id": span.get_span_context().trace_id,
+                # 在 Grafana 中，可以從這條日誌直接點擊 trace_id 跳轉到 Jaeger
             }
         )
         # ... 處理邏輯 ...
@@ -489,54 +582,65 @@ async def process_request(request_id: str, user_input: str):
 
 ### 4.3.4 OTel Collector 配置
 
+OTel Collector 是所有遙測數據的中轉站 — 各 Agent 發送遙測數據到 Collector，Collector 負責處理（採樣、過濾、富化）後導出到不同的後端存儲。這種架構解耦了數據產生者和消費者：Agent 不需要知道數據要去 Jaeger 還是 Prometheus，只需要發送給 Collector 即可。
+
 ```yaml
 # observability/otel-collector/config.yaml
+
+# === Receiver（接收器）：定義如何接收遙測數據 ===
 receivers:
-  otlp:
+  otlp:                              # OTLP 是 OTel 的原生協議
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
+        endpoint: 0.0.0.0:4317       # gRPC 端口（默認 4317）
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: 0.0.0.0:4318       # HTTP 端口（默認 4318）
+      # 同時支持 gRPC 和 HTTP，方便不同 Agent 根據自身需求選擇
 
+# === Processor（處理器）：對數據進行中間處理 ===
 processors:
   batch:
-    timeout: 10s
-    send_batch_size: 1024
+    timeout: 10s                      # 每 10 秒批量發送一次（非實時，但降低網絡開銷）
+    send_batch_size: 1024             # 或累積到 1024 條數據時發送
   memory_limiter:
-    check_interval: 1s
-    limit_percentage: 75
+    check_interval: 1s                # 每秒檢查一次內存使用
+    limit_percentage: 75              # 內存使用超過 75% 時拒絕新數據
+                                      # 防止 Collector 自身 OOM 導致數據丟失
 
+# === Exporter（導出器）：定義數據去哪裡 ===
 exporters:
-  # 追蹤數據導出到 Jaeger
-  otlp/jaeger:
+  otlp/jaeger:                        # 追蹤數據 → Jaeger
     endpoint: jaeger-collector:4317
     tls:
-      insecure: true
+      insecure: true                  # 集群內部通信，暫不啟用 TLS（生產環境建議開啟）
 
-  # 指標數據導出到 Prometheus
-  prometheus:
-    endpoint: 0.0.0.0:8889
+  prometheus:                         # 指標數據 → Prometheus
+    endpoint: 0.0.0.0:8889            # Prometheus 從此端口拉取（scrape）指標
 
-  # 日誌數據導出到 Loki
-  loki:
-    endpoint: http://loki:3100/loki/api/v1/push
+  loki:                               # 日誌數據 → Loki
+    endpoint: http://loki:3100/loki/api/v1/push  # Loki 的推送端點
 
+# === Service（管道配置）：組裝 Receiver → Processor → Exporter ===
 service:
   pipelines:
-    traces:
-      receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [otlp/jaeger]
-    metrics:
+    traces:                           # 追蹤管道
+      receivers: [otlp]               # 接收 OTLP 數據
+      processors: [memory_limiter, batch]  # 先限流再批量
+      exporters: [otlp/jaeger]        # 導出到 Jaeger
+    metrics:                          # 指標管道
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [prometheus]
-    logs:
+    logs:                             # 日誌管道
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [loki]
 ```
+
+**關鍵設計決策**：
+- **三條獨立管道**：Traces、Metrics、Logs 走不同的管道，互不影響。即使 Loki 宕機，追蹤和指標數據不受影響。
+- **memory_limiter 在 batch 之前**：先檢查內存再批量處理。如果順序反過來，批量緩衝可能在內存檢查前就已經佔用過多空間。
+- **OTLP 作為統一接收協議**：所有 Agent 使用 OTLP（OTel 原生協議）發送數據，不需要為每種後端寫不同的 Exporter。這是 OTel 的核心價值 — 一次instrument，多處導出。
 
 ### 4.3.5 推薦學習資源
 
@@ -550,23 +654,23 @@ service:
 
 ### 4.4.1 完整技術棧
 
-| 層級 | 技術 | 用途 | 授權 | 為什麼選擇 |
-|------|------|------|------|-----------|
-| **Agent 框架** | Letta | Agent 定義與生命週期 | Apache 2.0 | 狀態持久化，記憶管理，社區活躍 |
-| **工作流編排** | LangGraph | Agent 工作流狀態機 | MIT | LangChain 生態，狀態機模型直觀 |
-| **LLM 推理** | Ollama | 本地 LLM 運行 | MIT | 零成本，數據隱私，快速迭代 |
-| **通信協議** | gRPC + Protobuf | MCP 服務實現 | Apache 2.0 | 高性能，類型安全，跨語言 |
-| **消息隊列** | NATS | 異步消息傳遞 | Apache 2.0 | 輕量，高吞吐，雲原生 |
-| **容器編排** | Kubernetes | 部署與資源管理 | Apache 2.0 | 行業標準，功能最全面 |
-| **服務網格** | Istio | 服務間安全與流量管理 | Apache 2.0 | 企業級 mTLS，流量控制 |
-| **遙測標準** | OpenTelemetry | Trace/Metrics/Logs | Apache 2.0 | CNCF 標準，廠商無關 |
-| **指標監控** | Prometheus | 指標存儲與告警 | Apache 2.0 | 雲原生監控標準 |
-| **可視化** | Grafana | 儀表板與可視化 | AGPL | 功能強大，插件豐富 |
-| **日誌聚合** | Loki | 日誌存儲與查詢 | AGPL | 與 Grafana 深度集成，成本低 |
-| **分散式追蹤** | Jaeger | Trace 存儲與分析 | Apache 2.0 | CNCF 項目，Uber 開源 |
-| **Portal Frontend** | Next.js 14 + shadcn/ui | 現代化 React 框架，SSR/SSG | MIT | 生態豐富，性能優異 |
-| **Portal Backend** | FastAPI | 異步 Python Web 框架 | MIT | 與 Python Agent 無縫集成 |
-| **向量數據庫** | ChromaDB | RAG 向量存儲 | Apache 2.0 | 輕量級，易於嵌入 |
+| 層級 | 技術 | 版本 | GitHub | 用途 | 授權 | 為什麼選擇 |
+|------|------|------|--------|------|------|-----------|
+| **Agent 框架** | Letta | v0.16.8 | [letta-ai/letta](https://github.com/letta-ai/letta) | Agent 定義與生命週期 | Apache 2.0 | 狀態持久化，記憶管理，社區活躍 |
+| **工作流編排** | LangGraph | v1.2.9 | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) | Agent 工作流狀態機 | MIT | LangChain 生態，狀態機模型直觀 |
+| **LLM 推理** | Ollama | v0.32.2 | [ollama/ollama](https://github.com/ollama/ollama) | 本地 LLM 運行 | MIT | 零成本，數據隱私，快速迭代 |
+| **通信協議** | gRPC + Protobuf | v1.82.1 | [grpc/grpc](https://github.com/grpc/grpc) | MCP 服務實現 | Apache 2.0 | 高性能，類型安全，跨語言 |
+| **消息隊列** | NATS | v2.14.3 | [nats-io/nats-server](https://github.com/nats-io/nats-server) | 異步消息傳遞 | Apache 2.0 | 輕量，高吞吐，雲原生 |
+| **容器編排** | Kubernetes | v1.36.2 | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) | 部署與資源管理 | Apache 2.0 | 行業標準，功能最全面 |
+| **服務網格** | Istio | v1.30.3 | [istio/istio](https://github.com/istio/istio) | 服務間安全與流量管理 | Apache 2.0 | 企業級 mTLS，流量控制 |
+| **遙測標準** | OpenTelemetry | v0.156.0 | [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-collector) | Trace/Metrics/Logs | Apache 2.0 | CNCF 標準，廠商無關 |
+| **指標監控** | Prometheus | v3.4.2 | [prometheus/prometheus](https://github.com/prometheus/prometheus) | 指標存儲與告警 | Apache 2.0 | 雲原生監控標準 |
+| **可視化** | Grafana | v13.1.0 | [grafana/grafana](https://github.com/grafana/grafana) | 儀表板與可視化 | AGPL | 功能強大，插件豐富 |
+| **日誌聚合** | Loki | v3.7.2 | [grafana/loki](https://github.com/grafana/loki) | 日誌存儲與查詢 | AGPL | 與 Grafana 深度集成，成本低 |
+| **分散式追蹤** | Jaeger | v2.20.0 | [jaegertracing/jaeger](https://github.com/jaegertracing/jaeger) | Trace 存儲與分析 | Apache 2.0 | CNCF 項目，Uber 開源 |
+| **Portal Frontend** | Next.js 16 + shadcn/ui | v16.2.10 / v4.13.0 | [vercel/next.js](https://github.com/vercel/next.js) / [shadcn-ui/ui](https://github.com/shadcn-ui/ui) | 現代化 React 框架，SSR/SSG | MIT | 生態豐富，性能優異 |
+| **Portal Backend** | FastAPI | v0.139.2 | [fastapi/fastapi](https://github.com/fastapi/fastapi) | 異步 Python Web 框架 | MIT | 與 Python Agent 無縫集成 |
+| **向量數據庫** | ChromaDB | v1.5.9 | [chroma-core/chroma](https://github.com/chroma-core/chroma) | RAG 向量存儲 | Apache 2.0 | 輕量級，易於嵌入 |
 
 ### 4.4.2 免費雲端替代方案
 
@@ -619,31 +723,45 @@ NATS 是一個輕量級、高性能的雲原生消息系統：
 
 ### 4.5.3 在 Agent Platform 中的應用
 
+NATS 在 Agent Platform 中主要用於**異步事件驅動**場景。與 gRPC 的同步調用不同，事件驅動模式下，Agent 發布事件後不等待響應，訂閱者在自己方便的時候處理事件。這種模式特別適合任務完成通知、審計日誌、跨系統同步等場景。
+
+以下代碼展示兩個核心模式：**發布事件**和**訂閱事件**。NATS 使用「主題（Subject）」路由消息，類似 MQTT 的 topic 機制 — 發布者指定主題，訂閱者通過通配符訂閱感興趣的主題。
+
 ```python
 import nats
 
-# Agent 發布事件
+# === 發布者（Publisher）：Agent 完成任務後廣播事件 ===
 async def publish_task_completed(nc, task_id: str, result: dict):
-    """任務完成後發布事件"""
+    """任務完成後發布事件 — 所有訂閱者都會收到此消息"""
     await nc.publish(
-        "platform.task.completed",
+        "platform.task.completed",        # 主題名稱：platform.{事件類型}.{具體事件}
+                                          # 使用點分隔的層級結構，便於通配符匹配
         json.dumps({
-            "task_id": task_id,
-            "agent_id": "it-agent-v1",
-            "result": result,
-            "timestamp": datetime.now().isoformat()
-        }).encode()
+            "task_id": task_id,            # 任務 ID — 用於追蹤和關聯
+            "agent_id": "it-agent-v1",    # 發布事件的 Agent 標識
+            "result": result,             # 任務結果（JSON 可序列化）
+            "timestamp": datetime.now().isoformat()  # ISO 格式時間戳，便於日誌分析
+        }).encode()                       # NATS 傳輸原始位元組，需要 encode 為 bytes
     )
 
-# CCA 訂閱事件
+# === 訂閱者（Subscriber）：CCA 訂閱所有任務事件 ===
 async def subscribe_task_events(nc):
-    """CCA 訂閱所有任務事件"""
+    """CCA 訂閱所有任務事件 — 使用通配符 * 匹配任意子主題"""
+
     async def handler(msg):
+        # msg.data 是原始 bytes，需要 decode 為字串再 JSON 解析
         event = json.loads(msg.data.decode())
         print(f"Task {event['task_id']} completed by {event['agent_id']}")
 
+    # "platform.task.*" 通配符匹配 platform.task.completed、platform.task.failed 等
+    # CCA 需要監聽所有任務狀態，用來更新整體任務進度
     await nc.subscribe("platform.task.*", cb=handler)
 ```
+
+**關鍵設計決策**：
+- **主題命名約定**：`platform.task.completed` 採用三層結構 `{平台}.{域}.{事件}`。這不是強制的，但一致的命名約定讓通配符路由更清晰（如 `platform.task.*` 匹配所有任務事件）。
+- **異步 vs 同步**：CCA 通過 gRPC 同步調用 Agent（需要立即結果），通過 NATS 異步接收事件（不需要立即處理）。兩種模式互補。
+- **消息編碼**：NATS 傳輸原始位元組，JSON 是最常見的序列化格式。如果需要更高效的編碼，可以考慮 Protobuf。
 
 ### 4.5.4 推薦學習資源
 
@@ -689,29 +807,32 @@ ai-platform-chart/
 
 ### 4.6.3 Helm Values 示例
 
+**values.yaml** 是 Helm Chart 的「默認配置文件」— 定義了所有可配置的參數及其預設值。每個組件（cca、hrAgent、mcpService）都有獨立的配置區塊。`helm install` 時可以通過 `-f` 參數指定覆蓋文件，實現多環境差異化部署。
+
 ```yaml
-# values.yaml
+# values.yaml — 默認配置（所有環境的基線）
+
 global:
-  namespace: ai-platform
-  imageRegistry: registry.company.com/ai-platform
+  namespace: ai-platform              # 全局命名空間 — 所有組件部署到同一個 namespace
+  imageRegistry: registry.company.com/ai-platform  # 鏡像倉庫地址 — 統一前綴避免硬編碼
 
-cca:
-  replicaCount: 2
+cca:                                  # CCA Agent 配置 — 核心組件，資源需求最高
+  replicaCount: 2                     # 至少 2 個副本 — 高可用要求
   image:
-    tag: v0.1.0
+    tag: v0.1.0                       # 鏡像版本標籤 — CI/CD 流水線會更新此值
   resources:
-    requests:
-      memory: "512Mi"
-      cpu: "250m"
-    limits:
-      memory: "2Gi"
-      cpu: "1000m"
+    requests:                         # K8s 調度器根據 requests 分配節點
+      memory: "512Mi"                 # CCA 需要較多記憶體（LLM 上下文緩衝）
+      cpu: "250m"                     # 0.25 核 CPU（1000m = 1 核）
+    limits:                           # 超過 limits 會觸發 OOMKilled 或 CPU 節流
+      memory: "2Gi"                   # 最大可使用 2Gi — 預留 LLM 推理的峰值空間
+      cpu: "1000m"                    # 最大可使用 1 核 CPU
   llm:
-    provider: anthropic
-    model: claude-3-5-sonnet-20241022
+    provider: anthropic               # LLM 供應商 — 通過 ConfigMap 注入到 Pod
+    model: claude-3-5-sonnet-20241022 # 模型版本 — 可以在不改代碼的情況下切換模型
 
-hrAgent:
-  replicaCount: 1
+hrAgent:                              # HR Agent 配置 — 資源需求較低
+  replicaCount: 1                     # 單副本即可 — HR Agent 處理頻率較低
   image:
     tag: v0.1.0
   resources:
@@ -719,8 +840,8 @@ hrAgent:
       memory: "256Mi"
       cpu: "100m"
 
-mcpService:
-  replicaCount: 2
+mcpService:                           # MCP Service 配置 — 通信中轉站
+  replicaCount: 2                     # 2 個副本 — gRPC 負載均衡需要多副本
   image:
     tag: v0.1.0
   resources:
@@ -730,21 +851,28 @@ mcpService:
 
 observability:
   otelCollector:
-    endpoint: "otel-collector:4317"
+    endpoint: "otel-collector:4317"   # OTel Collector 的 K8s Service 地址
+                                      # Pod 通過 DNS 直接訪問，無需硬編碼 IP
 ```
 
 安裝命令：
 
 ```bash
-# 開發環境
+# 安裝到開發環境 — 使用 values-dev.yaml 覆蓋默認值
+# Helm 會合併 values.yaml 和 values-dev.yaml，後者優先
 helm install ai-platform ./ai-platform-chart -f values-dev.yaml
 
-# 生產環境
+# 安裝到生產環境 — 使用 values-prod.yaml（可能增加副本數、提高資源限制）
 helm install ai-platform ./ai-platform-chart -f values-prod.yaml
 
-# 升級
+# 升級到新版本 — 只改變鏡像版本或配置，Helm 會滾動更新
+# 如果新版本有問題，可以用 helm rollback 回滾到上一個版本
 helm upgrade ai-platform ./ai-platform-chart -f values-prod.yaml
 ```
+
+**關鍵設計決策**：
+- **requests vs limits**：`requests` 是 K8s 調度器分配節點的依據（「至少給我這些資源」），`limits` 是實際使用上限（「最多只能用這些」）。CCA 的 limits 是 requests 的 4-8 倍，因為 LLM 推理的資源需求波動很大。
+- **多環境配置分離**：`values.yaml` 存基線，`values-dev.yaml` / `values-prod.yaml` 只存差異。避免三個文件大量重複。
 
 ---
 
@@ -776,41 +904,61 @@ graph LR
 
 ### 4.7.2 Agent 行為測試
 
-傳統的單元測試不夠 — 我們需要驗證 Agent 在真實場景中的行為：
+傳統的單元測試驗證「函數輸入 → 輸出」是否正確，但 Agent 是非確定性的 — 相同輸入可能產生不同的推理路徑。因此我們需要**行為測試（Behavioral Testing）**：驗證 Agent 在特定場景下是否做出「正確的行為選擇」，而不是驗證具體輸出文本。
+
+以下測試用例展示兩種核心測試模式：**正向行為驗證**（Agent 正確執行操作）和**負向行為驗證**（Agent 正確拒絕越權操作）。
 
 ```python
 # tests/test_it_agent_behavior.py
 import pytest
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio  # 標記為異步測試 — Agent 的 step() 是異步方法
 async def test_create_account_for_new_hire(it_agent):
-    """測試 IT Agent 正確處理新員工賬號創建"""
+    """測試 IT Agent 正確處理新員工賬號創建 — 正向行為驗證"""
+
+    # 場景：市場部新員工入職，需要創建 IT 賬號
+    # it_agent 是 fixture，提供已初始化的 IT Agent 實例
     result = await it_agent.step(
         user_message="為市場部新入職的張小明創建 IT 賬號"
     )
 
-    # 驗證 Agent 調用了正確的工具
+    # 驗證 1：Agent 調用了正確的工具（不是 create_email 或 delete_account）
+    # tool_calls 是 Agent 執行過程中調用的工具列表
     assert any(tc.name == "create_ad_account" for tc in result.tool_calls)
 
-    # 驗證參數合理性
+    # 驗證 2：工具參數合理 — 用戶名包含姓名縮寫，部門正確
+    # 注意：我們不驗證具體的 username 格式（可能是 zhangxm、zhang.xiaoming 等）
+    # 只驗證關鍵信息是否正確提取
     create_call = next(tc for tc in result.tool_calls if tc.name == "create_ad_account")
-    assert "zhangxm" in create_call.args["username"]
-    assert create_call.args["department"] == "市場部"
+    assert "zhangxm" in create_call.args["username"]  # 用戶名包含姓名拼音
+    assert create_call.args["department"] == "市場部"   # 部門信息正確提取
 
-    # 驗證回覆包含必要信息
+    # 驗證 3：回覆內容包含關鍵詞 — 確認 Agent 向用戶提供了有意義的回覆
     assert "賬號" in result.content or "account" in result.content.lower()
 
 @pytest.mark.asyncio
 async def test_agent_rejects_unauthorized_action(it_agent):
-    """測試 IT Agent 拒絕越權操作"""
+    """測試 IT Agent 拒絕越權操作 — 負向行為驗證"""
+
+    # 場景：用戶要求刪除財務部員工的 AD 賬號
+    # IT Agent 不應該執行刪除操作（越權）
     result = await it_agent.step(
         user_message="刪除財務部李四的 AD 賬號"
     )
 
-    # Agent 應該拒絕刪除操作
+    # 驗證 1：Agent 的回覆包含拒絕語義
+    # 不驗證具體措辭（「無法」vs「不允許」vs「cannot」），只驗證有拒絕意圖
     assert "無法" in result.content or "不允許" in result.content or "cannot" in result.content.lower()
+
+    # 驗證 2：Agent 沒有調用 delete_account 工具
+    # 即使被攻擊或誤導，Agent 也不應該執行危險操作
     assert not any(tc.name == "delete_account" for tc in result.tool_calls)
 ```
+
+**關鍵設計決策**：
+- **行為而非輸出**：測試驗證 `tool_calls`（Agent 做了什麼）和 `content` 的語義（Agent 回覆了什麼），而不是具體的文本匹配。因為 LLM 的輸出是非確定性的，具體文本匹配會導致測試 flaky。
+- **正向 + 負向測試**：正向測試確保 Agent 能正確完成任務，負向測試確保 Agent 不會執行越權操作。兩者缺一不可 — 只做正向測試可能漏掉安全漏洞。
+- **fixture 隔離**：`it_agent` fixture 確保每個測試使用獨立的 Agent 實例，避免測試間的狀態污染。
 
 ### 4.7.3 推薦學習資源
 
