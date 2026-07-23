@@ -829,6 +829,8 @@ async def health():
 
 ### 12.4.1 Mock AD API
 
+Mock AD API 模擬企業 Active Directory 服務，用於本地開發和測試。它實現了兩端點：`/ad/user/{user_id}` 回傳員工基本資料（姓名、部門、職稱），`/ad/computers` 回傳部門虛擬機清單。所有資料從 `MOCK_USERS` 字典直接回傳，無需外部依賴：
+
 ```python
 # mocks/ad-api/main.py
 """Mock Active Directory API — 模擬 AD 賬戶管理"""
@@ -894,6 +896,8 @@ async def health():
 
 ### 12.4.2 Mock HR API
 
+Mock HR API 模擬人力資源系統，提供員工級別查詢和虛擬機配額兩個端點。`/hr/level/{user_id}` 回傳員工的薪資等級與職稱，`/hr/quota/{user_id}` 回傳該員工的 VM 配額上限。這些資料是 Agent 進行 HR 審批決策的依據：
+
 ```python
 # mocks/hr-api/main.py
 """Mock HR System API — 模擬 HR 員工管理"""
@@ -954,6 +958,8 @@ async def health():
 
 ### 12.5.1 前置條件
 
+在啟動任何服務之前，必須先確認基礎設施就緒：Docker 引擎運行中、必要目錄已建立、Ollama 模型已下載。以下腳本逐一檢查這些條件，任一項失敗即中止：
+
 ```bash
 # 系統要求
 - Docker Desktop 4.0+ 或 Docker Engine 24.0+
@@ -969,6 +975,8 @@ docker compose exec ollama ollama pull qwen2.5:7b  # 下載 ~4.7GB 模型文件
 > **為什麼不需要 GPU？** MVP 選擇 `qwen2.5:7b`（~4.7GB）是因為它在 CPU 上的推理品質足夠驅動結構化 JSON 輸出。一個入職流程（3-5 個 tool call）大約需要 2-5 分鐘完成，這對演示來說完全可以接受。如果你有 NVIDIA GPU，可以在 docker-compose.yml 中取消 Ollama 服務的 GPU 限制，切換到 `qwen2.5:14b` 或 `llama3:8b` 獲得 5-10 倍的推理速度。
 
 ### 12.5.2 啟動步驟
+
+依序啟動各服務：Ollama 模型載入 → PostgreSQL 資料庫 → NATS 消息隊列 → Redis 快取 → MCP Service → IT Agent → HR Agent → CCA Agent。每個步驟之間等待 3 秒，確保服務有足夠時間初始化；服務啟動後額外等待 2 秒再繼續，避免連線尚未就緒：
 
 ```bash
 # 1. Clone 項目
@@ -1028,6 +1036,8 @@ open http://localhost:9114
 
 ### 12.5.4 驗證服務
 
+服務啟動後，透過四項健康檢查驗證各組件是否正常運作：Ollama 模型可用性、PostgreSQL 連線、MCP Service 回應、CCA Agent 狀態。任一項失敗則標記警告但不中止，方便開發者快速定位問題：
+
 ```bash
 # 檢查各服務健康狀態（每個服務都有 /healthz 端點）
 curl http://localhost:9109/healthz   # MCP Service — Agent 間通信橋樑
@@ -1059,6 +1069,8 @@ docker compose logs -f hr-agent     # HR Agent 日誌，觀察員工創建流程
 | **K8s 部署** | 遷移到 K8s | 生產級部署 |
 
 ### 12.6.2 自定義 Agent
+
+在 MCP 架構中，新增一個 Agent 只需三個步驟：編寫 Agent 類別、註冊 MCP 工具、在 `agents.yaml` 加入配置。以下是一個完整的自定義 Agent 範例——`StorageAgent`，負責管理虛擬機儲存空間的監控與擴充：
 
 ```python
 # 添加一個新的自定義 Agent
@@ -1287,6 +1299,8 @@ class OllamaClient:
 
 ### 12.9.1 知識庫構建器
 
+`KnowledgeBaseBuilder` 負責將原始文件（Markdown、純文字、PDF）載入、切割成適當大小的Chunks、透過 Ollama 產生向量嵌入，最後儲存到 ChromaDB 中。以下為其核心實作：
+
 ```python
 # knowledge/base_builder.py
 import chromadb
@@ -1421,6 +1435,8 @@ if __name__ == "__main__":
 
 ### 12.9.2 Docker 啟動腳本
 
+以下腳本自動化知識庫服務的部署流程：啟動 Milvus 向量資料庫（等待所有容器就緒）→ 啟動 ChromaDB → 載入文件並建立向量索引 → 驗證索引狀態。腳本採用「等待—檢查」模式，確保前一個服務完全就緒後再繼續：
+
 ```bash
 #!/bin/bash
 # scripts/seed_knowledge.sh — 知識庫初始化腳本（容器內執行）
@@ -1444,6 +1460,8 @@ echo "✅ 知識庫準備就緒"
 ## 12.10 測試腳本
 
 ### 12.10.1 端對端測試
+
+`EndToEndTest` 類別模擬真實使用者操作，驗證 Agent 平台的完整功能：員工帳號建立（包含 HR 審批流程）、AD 帳號同步、VM 申請（包含多層級審批）、以及知識庫搜尋。每個測試步驟都帶有超時機制和詳細的通過/失敗日誌：
 
 ```python
 # tests/test_e2e_onboarding.py
@@ -1540,6 +1558,8 @@ async def test_concurrent_requests(client):
 > **測試設計要點**：MVP 的測試不驗證 LLM 推理結果（因為 CPU 推理不確定性太高），而是驗證「管道是否暢通」——服務是否健康、工具是否可發現、任務是否被接受、併發是否穩定。真正的 E2E 驗證依賴 `scripts/verify_setup.sh` 中的互動式測試。
 
 ### 12.10.2 快速驗證腳本
+
+快速驗證腳本是一鍵式部署後自動化測試工具。它依序完成：環境檢查（Docker、Git、Ollama）→ 啟動所有服務 → 等待就緒 → 執行 API 健康檢查 → 執行 Agent 請求測試 → 產出結果報告。任一環節失敗即自動嘗試回滾：
 
 ```bash
 #!/bin/bash

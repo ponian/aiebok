@@ -53,6 +53,8 @@ graph TB
 
 ### 8.1.2 資源配額與限制
 
+在多租戶或多功能的 K8s 集群中，如果某個 Namespace 無限制地佔用 CPU 和記憶體，其他 Namespace 的服務將面臨資源飢餓。以下配置使用 ResourceQuota 和 LimitRange 兩個原生物件來解決這個問題：ResourceQuota 負責管控整個 Namespace 的資源總量上限，而 LimitRange 則定義單個 Pod/Container 的資源範圍（默認值與最大值），兩者配合形成「總量 + 個體」的雙重防線。
+
 ```yaml
 # k8s/namespaces/platform-system/resource-quota.yaml
 # ================================================================
@@ -105,6 +107,8 @@ spec:
 ## 8.2 CCA Agent 的 K8s 部署
 
 ### 8.2.1 Deployment 配置
+
+CCA 作為平台的中央協調大腦，是整個系統中配置最全面的 Deployment。以下 YAML 展示了一個生產級 CCA 部署的完整配置，包含多副本策略、安全上下文、雙通訊端口（HTTP + gRPC）、三層健康檢查探針、敏感配置走 Secret、配置文件走 ConfigMap、TLS 證書掛載等關鍵設定。
 
 ```yaml
 # k8s/platform/cca-agent/deployment.yaml —— CCA Agent 的完整 Deployment 配置
@@ -229,6 +233,8 @@ spec:
 
 ### 8.2.2 HPA 自動擴縮
 
+CCA 的請求量會隨業務波動——工作日高峰時大量員工同時提交 IT 申請，深夜則幾乎為零。HorizontalPodAutoscaler（HPA）根據即時負載自動調整 Pod 副本數。以下配置採用 CPU、記憶體和自定義業務指標三個維度進行擴縮決策，並設定了不對稱的擴縮行為策略以兼顧響應速度與穩定性。
+
 ```yaml
 # k8s/platform/cca-agent/hpa.yaml —— CCA Agent 的自動擴縮配置
 # ================================================================
@@ -291,6 +297,8 @@ spec:
 ## 8.3 Specialized Agents 的部署
 
 ### 8.3.1 HR Agent 的 K8s 配置
+
+HR Agent 部署在獨立的 `agents` Namespace 中，與 CCA 的 `platform-system` 做 Namespace 級別隔離。與 CCA 相比，HR Agent 的配置更為輕量：副本數更少（2 vs 3）、資源需求更低（512Mi vs 1Gi）、不需要 startupProbe（因為不載入大型 LLM 模型），但仍然需要對接 HR 系統 API 並透過 Secret 管理敏感的 API Token。
 
 ```yaml
 # k8s/agents/hr-agent/deployment.yaml
@@ -367,6 +375,8 @@ spec:
 - **無 startupProbe**：Agent 的 MCP 工具初始化（RAG 連接、HR API 握手）通常在 5-10 秒內完成，`initialDelaySeconds: 30` 的 livenessProbe 已足夠，不需要額外的 startupProbe 開銷。
 
 ### 8.3.2 IT Agent 的 K8s 配置
+
+IT Agent 與 HR Agent 的部署結構相似，但因 IT 場景（賬戶創建、密碼重置、權限申請）的併發需求更高，副本數設為 3。其敏感配置對接的是 Active Directory API，需要更高的安全管控。以下配置展示了 IT Agent 與 HR Agent 的關鍵差異之處。
 
 ```yaml
 # k8s/agents/it-agent/deployment.yaml
@@ -446,6 +456,8 @@ spec:
 
 ### 8.4.1 External Secrets Operator
 
+External Secrets Operator 是 K8s 生態中最常用的密鑰管理方案之一，它通過 ExternalSecret 資源從外部密鑰存儲（如 HashiCorp Vault、AWS Secrets Manager）自動同步密鑰到 K8s 原生的 Secret 物件。以下配置展示了如何從 Vault 同步 IT Agent 所需的 API 憑證，實現密鑰的集中化管理和自動輪轉。
+
 ```yaml
 # k8s/external-secrets/it-agent-secrets.yaml
 # ================================================================
@@ -484,6 +496,8 @@ spec:
 
 ### 8.4.2 Secrets 加密存儲
 
+SealedSecret 是 Bitnami 提供的加密方案，允許將 K8s Secret 加密後安全地提交到 Git 倉庫，實現 GitOps 工作流中的密鑰管理。與 External Secrets Operator 不同，SealedSecret 是「加密靜態存儲」方案，密鑰在提交前就被加密，只有目標集群的 sealed-secrets-controller 能解密。
+
 ```yaml
 # k8s/sealed-secrets/it-agent-secrets.yaml
 # ================================================================
@@ -512,6 +526,8 @@ spec:
 ## 8.5 網絡策略
 
 ### 8.5.1 Istio AuthorizationPolicy
+
+Istio AuthorizationPolicy 是 Service Mesh 層級的零信任存取控制機制，允許以 L7 應用層的粒度定義「誰能訪問什麼服務」的規則。以下配置展示了如何限制特定 Agent 的入站流量來源，只允許來自 CCA 的合法請求，並在最後添加 deny-all 默認策略作為安全基線。
 
 ```yaml
 # k8s/istio/authorization-policies.yaml
@@ -563,6 +579,8 @@ spec:
 
 ### 8.6.1 Chart 結構
 
+Helm Chart 是 K8s 應用的打包和部署格式。對於包含多個微服務的 AI Agent 平台，合理的 Chart 結構至關重要——它決定了配置的複用性、部署的獨立性以及維護的便利性。以下目錄結構展示了三層分離的設計：核心業務 Chart、基礎設施 Chart 和監控 Chart 各自獨立。
+
 ```
 # Helm Chart 目錄結構：三層分離的多組件部署架構
 # ================================================================
@@ -613,6 +631,8 @@ charts/
 - **`config/` 與 Agent 並列而非內嵌**：ConfigMap/Secrets 放在 templates 根目錄，所有 Agent 共享引用。避免每個 Agent 目錄下重複相同的 Secrets 定義。
 
 ### 8.6.2 Helm Values 示例
+
+values.yaml 是 Helm Chart 的配置核心，定義了所有可自定義的參數及其默認值。以下示例展示了 AI Agent 平台的完整配置結構，包括全局設定（鏡像倉庫）、各個 Agent 的副本數和資源配額、Ingress 路由以及監控開關。這種集中式配置讓同一套 Chart 能適應開發、測試和生產等多種環境。
 
 ```yaml
 # charts/ai-platform/values.yaml
@@ -691,6 +711,8 @@ monitoring:
 
 ### 8.7.1 滾動更新策略
 
+K8s 的 RollingUpdate 是零停機部署的基礎策略，通過逐步替換舊版本 Pod 來實現平滑過渡。以下配置定義了更新過程中的 Pod 數量控制：`maxUnavailable` 決定每次更新時最多有多少 Pod 不可用，`maxSurge` 決定最多能超出期望副本數多少個 Pod，兩者配合確保服務在更新期間始終保持足夠的容量。
+
 ```yaml
 # 滾動更新配置（嵌入 Deployment spec）
 # ================================================================
@@ -709,6 +731,8 @@ spec:
 - **`maxSurge: 1` 的成本控制**：限制同時存在的 Pod 數量不超過 `replicas + 1`，避免更新期間資源消耗翻倍。對 GPU Pod（每個價值數千元/月）尤其重要。
 
 ### 8.7.2 PreStop Hook
+
+當 K8s 終止一個 Pod 時，會同時執行兩個操作：將 Pod 從 Service Endpoints 中移除，以及向容器發送 SIGTERM 信號。然而這兩個操作並非原子的——Endpoints 的更新存在延遲，在此期間新請求仍會被轉發到正在關閉的 Pod，導致請求失敗。PreStop Hook 通過在容器實際開始關閉前插入一個等待期，讓 Endpoints 更新有時間生效。
 
 ```yaml
 # PreStop Hook：容器終止前的優雅處理（嵌入 Deployment spec）
@@ -736,6 +760,8 @@ containers:
 PodDisruptionBudget 確保在自愿中斷（節點維護、升級）期間維持最低可用 Pod 數量。
 
 ### 8.8.1 PDB 配置
+
+PodDisruptionBudget（PDB）用於限制自愿中斷（如節點維護、叢集升級、自動擴縮）期間可以同時不可用的 Pod 數量，確保服務在運維操作期間保持最低可用性。以下配置展示了兩種常見的 PDB 策略：使用 `minAvailable` 確保最低可用 Pod 數，以及使用 `maxUnavailable` 限制最大不可用 Pod 數。
 
 ```yaml
 # k8s/platform/cca-agent/pdb.yaml
@@ -789,6 +815,8 @@ spec:
 
 ### 8.9.1 默認 deny all
 
+零信任網絡的核心原則是「預設拒絕，顯式允許」。以下 NetworkPolicy 配置在 Namespace 級別實現這一原則：首先對所有 Pod 施加 deny-all 規則，封鎖全部入站和出站流量，後續再通過獨立的 Allow 規則逐一開放必要的通訊路徑。
+
 ```yaml
 # k8s/network-policies/default-deny-all.yaml
 # ================================================================
@@ -826,6 +854,8 @@ spec:
 - **`podSelector: {}` 的範圍**：空 selector 選擇「整個 Namespace 的所有 Pod」，但不影響其他 Namespace。每個 Namespace 需要獨立的 deny-all 策略。
 
 ### 8.9.2 允許特定流量
+
+在 deny-all 基線之上，需要逐一開放組件間的合法通訊。以下規則展示了兩個關鍵的 Allow 策略：一個是 CCA 從 `platform-system` 訪問 `hr-agent` 的 Ingress 規則，另一個是 Agent 出站訪問 NATS 消息隊列的 Egress 規則。
 
 ```yaml
 # k8s/network-policies/allow-cca-to-agents.yaml
@@ -886,6 +916,8 @@ spec:
 
 ### 8.9.3 跨 Namespace 通信
 
+在多 Namespace 的集群中，監控系統通常部署在獨立的 `observability` Namespace，但它需要跨 Namespace 抓取其他服務的 metrics 端點。以下 NetworkPolicy 展示了如何在 Platform 端開放 metrics 端口，允許 Observability 的 Prometheus 進行跨 Namespace 採集。
+
 ```yaml
 # k8s/network-policies/allow-observability-scraping.yaml
 # ================================================================
@@ -920,6 +952,8 @@ spec:
 ## 8.10 GPU 調度（Ollama）
 
 ### 8.10.1 GPU 節點配置
+
+Ollama 是一個本地 LLM 推理引擎，需要 GPU 硬體加速才能高效運行大語言模型。以下 Deployment 配置展示了 GPU 工作負載的三大關鍵要素：通過 `nodeSelector` 篩選帶有 GPU 標籤的節點、通過 `tolerations` 容忍 GPU 節點的 NoSchedule taint、以及使用 PVC 持久化模型文件避免每次重啟都需要重新下載。
 
 ```yaml
 # k8s/infra/ollama/deployment.yaml
@@ -978,6 +1012,8 @@ spec:
 
 ### 8.10.2 GPU 節點標籤
 
+在 K8s 中使用 GPU 資源前，需要完成兩個基礎設施準備工作：首先為帶有 GPU 的物理節點打上自定義標籤（讓調度器能識別它們），然後安裝 NVIDIA Device Plugin（讓 K8s 能偵測和分配 GPU 資源）。以下命令序列展示了完整的 GPU 節點啟用流程。
+
 ```bash
 # GPU 節點標籤與 NVIDIA Device Plugin 安裝
 # ================================================================
@@ -998,6 +1034,8 @@ kubectl get nodes gpu-node-1 -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
 ```
 
 ### 8.10.3 NVIDIA Device Plugin
+
+NVIDIA Device Plugin 是讓 K8s 識別 GPU 硬體的關鍵組件。它以 DaemonSet 的形式運行在每個 GPU 節點上，通過 kubelet 的 gRPC 接口向 API Server 報告可用的 GPU 數量。以下配置展示了 Device Plugin 的 DaemonSet 定義，包括 GPU taint 的容忍和必要的 hostPath 掛載。
 
 ```yaml
 # NVIDIA Device Plugin DaemonSet（安裝在 kube-system Namespace）
@@ -1046,6 +1084,8 @@ spec:
 
 ### 8.11.1 Ollama 模型存儲
 
+LLM 模型文件通常體積龐大（70B 參數模型約 40GB），必須使用 PersistentVolumeClaim（PVC）進行持久化存儲，否則每次 Pod 重啟都會觸發耗時的模型下載。以下配置展示了 Ollama 專用的 PVC 定義及其關聯的 StorageClass，確保模型數據在 Pod 生命周期之外持久保存。
+
 ```yaml
 # k8s/infra/ollama/pvc.yaml
 # ================================================================
@@ -1085,6 +1125,8 @@ volumeBindingMode: WaitForFirstConsumer  # 延遲綁定：等到 Pod 調度後�
 - **100Gi 的容量規劃**：Llama 3 70B (Q4) 約 40GB，加上 7B/13B 等小模型用於不同場景，100Gi 提供了緩衝。`allowVolumeExpansion: true` 允許未來不刪除 PVC 直接擴容。
 
 ### 8.11.2 PostgreSQL 存儲
+
+PostgreSQL 作為有狀態的關係型數據庫，其存儲配置需要比無狀態服務更多的考量。以下展示了 PostgreSQL 的 StatefulSet 配置，包括 Headless Service（用於穩定的 DNS 發現）、volumeClaimTemplates（為每個 Pod 副本自動創建獨立的 PVC）以及數據庫初始化環境變數的 Secret 管理。
 
 ```yaml
 # k8s/infra/postgresql/pvc.yaml

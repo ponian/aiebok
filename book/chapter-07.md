@@ -35,6 +35,8 @@ sequenceDiagram
 
 ### 7.1.2 JSON-RPC 消息格式
 
+以下展示了 MCP 通信中最常見的三種 JSON-RPC 消息：工具調用請求、成功響應和失敗響應。每個消息都包含 `jsonrpc` 版本標識和用於匹配請求與響應的 `id` 字段，而 `isError` 標誌則將業務層面的成敗與 HTTP 狀態碼分離開來：
+
 ```json
 // === 請求：調用 IT Agent 創建賬戶 ===
 // MCP 通信基於 JSON-RPC 2.0 標準格式
@@ -95,6 +97,8 @@ sequenceDiagram
 ## 7.2 MCP Service 核心實現
 
 ### 7.2.1 服務架構
+
+MCP Service 的核心是一個 FastAPI 應用，負責接收 JSON-RPC 諸求、路由到對應的處理器、並整合限流和審計日誌等企業級能力。以下代碼實現了 `MCPService` 類和 HTTP 端點：在請求進入時先經過限流檢查，然後根據 `method` 字段分發到 `tools/list`、`tools/call`、`resources/read` 或 `resources/subscribe` 四個處理器之一：
 
 ```python
 """
@@ -188,6 +192,8 @@ async def mcp_endpoint(request: JSONRPCRequest):
 - **全局單例的局限**：當前 `mcp = MCPService()` 是全局單例，在多進程/多 Pod 場景下需要改為 lifespan 管理（uvicorn 的 --workers 或 Kubernetes 多副本）。審計日誌和限流器需要外置到 Redis（限流）和 Kafka（審計）。
 
 ### 7.2.2 工具發現（tools/list）
+
+工具發現是 MCP 協議的基礎能力 — CCA 啟動時調用 `tools/list`，獲取所有已註冊 Agent 的工具列表。每個工具包含名稱、描述、輸入 Schema 和路由元數據（Agent ID、業務域、SLA、權限範圍）。CCA 的 LLM 根據這些信息決定「這個任務應該交給哪個 Agent」：
 
 ```python
 # mcp_service/tools_list.py
@@ -290,6 +296,8 @@ async def handle_tools_list(self, params: dict) -> dict:
 - **SLA 差異**：HR 查詢 2 秒 vs IT 創建 3 秒。CCA 可以在 Prompt 中將 SLA 信息傳遞給用戶（「IT 賬戶創建大約需要 3 秒」），提升用戶體驗的可預期性。
 
 ### 7.2.3 工具調用（tools/call）
+
+工具調用是 MCP 協議中最核心的方法 — CCA 透過 `tools/call` 觸發 Agent 執行具體操作。以下代碼實現了完整的調用流程：先從工具名中解析出 Agent ID，再進行權限檢查，最後異步調用 Agent 並將結果記錄到審計日誌。整個流程分為「解析 → 權限 → 調用 → 審計」四個階段，每層職責單一：
 
 ```python
 # mcp_service/tools_call.py
@@ -1257,6 +1265,8 @@ tools:
 - **`deprecated` → `beta` → `active` 三態**：不是簡單的「活躍/下線」二態。`beta` 狀態允許灰度測試（僅對特定 CCA 開放），避免實驗性功能直接暴露給所有調用方。
 
 ### 7.9.2 版本路由實現
+
+版本路由器負責在多個工具版本之間進行解析：當 CCA 指定特定版本時直接路由，未指定時使用預設版本，預設版本不存在時回退到最新版本。以下代碼實現了 `ToolVersionRouter` 類，支持版本註冊、預設版本設定、版本棄用、以及返回所有活躍版本的工具列表供 `tools/list` 使用：
 
 ```python
 # mcp_service/version_router.py

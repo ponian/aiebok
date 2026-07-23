@@ -336,6 +336,8 @@ IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT Operations Agent。
 
 ### 6.3.1 HR Agent 的工具集
 
+HR Agent 的工具集設計需要兼顧功能性與隱私保護。與 IT Agent 不同，HR Agent 直接操作含有敏感信息（如薪資、績效）的員工數據庫，因此工具的輸入驗證和權限控制更為嚴格。以下代碼實現了三個核心工具：員工查詢支持多條件組合搜索、員工記錄更新使用 PATCH 方法避免意外覆蓋、HR 政策查詢則透過 RAG 向量搜索從政策知識庫中檢索相關段落：
+
 ```python
 # agents/hr_agent/tools.py
 from pydantic import BaseModel, Field

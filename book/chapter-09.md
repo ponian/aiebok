@@ -133,6 +133,8 @@ class AgentTracer:
 
 ### 9.2.2 在 Agent 中使用追蹤
 
+在實際的 Agent 實作中，我們需要為每個人 Agent 任務建立對應的 Span，記錄其開始時間、結束時間、執行狀態與相關屬性。以下範例展示如何在 Agent 的主迴圈中加入追蹤邏輯，確保每次工具呼叫、LLM 推理、以及協作流程都能被完整記錄：
+
 ```python
 # agents/it_agent/instrumented.py
 from observability.tracing import AgentTracer
@@ -185,6 +187,8 @@ class InstrumentedITAgent:
 
 ### 9.2.3 Span 屬性規範
 
+Span 屬性（Attributes）是追蹤系統中用於篩選、分組與分析的核心元資料。針對 AI Agent 平台的特殊需求，我們需要設計一套涵蓋 Agent 識別、任務上下文、模型資訊與效能指標的屬性命名規範。以下是推薦的 Span 屬性標準，遵循 OpenTelemetry Semantic Convention 的命名風格：
+
 ```yaml
 # AI Agent 平台的 Span 屬性標準（Semantic Convention）
 # ================================================================
@@ -236,6 +240,8 @@ span_attributes:
 ## 9.3 指標收集（Metrics）
 
 ### 9.3.1 自定義指標
+
+除了自動產生的基礎指標外，AI Agent 平台需要針對業務場景自定義關鍵效能指標（KPI）。以下定義了三個核心自定義指標：Agent 任務完成率（衡量端到端的成功比例）、LLM 呼叫延遲（追蹤模型回應時間的分佈）、以及工具呼叫成功率（監控外部整合的穩定性）。這些指標將透過 Prometheus Registry 註冊並暴露：
 
 ```python
 # observability/metrics.py
@@ -304,6 +310,8 @@ response_latency = meter.create_histogram(
 
 ### 9.3.2 Prometheus 配置
 
+定義好自定義指標後，需要配置 Prometheus 來抓取這些指標資料。以下配置利用 Kubernetes 的服務發現機制，自動發現所有帶有 `prometheus.io/scrape: "true"` 註解的 Pod，並根據註解中的路徑和端口進行指標抓取。同時為每個抓取目標自動附加 `namespace` 和 `pod` 標籤，方便後續按命名空間或 Pod 維度分析：
+
 ```yaml
 # prometheus/prometheus.yml
 # ================================================================
@@ -351,6 +359,8 @@ scrape_configs:
 ## 9.4 結構化日誌（Logs）
 
 ### 9.4.1 日誌格式設計
+
+結構化日誌是現代分散式系統可觀測性的基石。相較於傳統的純文字日誌，JSON 格式的結構化日誌能被 Loki、Elasticsearch 等日誌系統直接解析和查詢，大幅提升排錯效率。以下使用 structlog 函式庫建立統一的日誌封裝，確保所有 Agent 產生的日誌具備一致的欄位格式和上下文資訊：
 
 ```python
 # observability/logging.py
@@ -436,6 +446,8 @@ class AgentLogger:
 
 ### 9.4.2 Loki 日誌存儲
 
+Loki 是 Grafana Labs 開發的日誌聚合系統，其設計理念是「like Prometheus, but for logs」。與 Elasticsearch 不同，Loki 只索引標籤（Labels），不索引日誌內容，大幅降低了存儲成本。以下配置定義了 Loki 的存儲後端、索引策略和壓縮設定，適合處理 AI Agent 平台產生的高量結構化日誌：
+
 ```yaml
 # loki/loki-config.yaml
 # ================================================================
@@ -489,6 +501,8 @@ limits_config:
 ## 9.5 Grafana 儀表板
 
 ### 9.5.1 核心儀表板
+
+Grafana 儀表板是將 Prometheus 指標和 Loki 日誌轉化為視覺化洞察的核心介面。以下定義了一個 AI Agent 平台的全局總覽儀表板，包含活躍任務數、任務成功率、LLM 延遲分佈、Token 消耗量等關鍵面板，讓運維團隊能即時掌握平台健康狀態：
 
 ```json
 {
@@ -559,6 +573,8 @@ limits_config:
 
 ### 9.6.1 Prometheus AlertManager 配置
 
+AlertManager 負責接收 Prometheus 產生的告警，並根據規則進行分組、抑制和路由，將通知發送到 Slack、Email 或 PagerDuty 等渠道。正確配置告警路由對於避免「告警風暴」至關重要——特別是在多 Agent 環境中，一個故障可能同時觸發數十條關聯告警：
+
 ```yaml
 # alertmanager/alertmanager.yml
 # ================================================================
@@ -596,6 +612,8 @@ inhibit_rules:
 - **`inhibit_rules` 抑制規則**：當 critical 告警已觸發時，同 Agent 的 warning 告警沒有意義（已經比 warning 更嚴重了）。抑制它們減少噪音，讓值班人員專注處理 critical。
 
 ### 9.6.2 告警規則
+
+告警規則定義了「什麼條件觸發告警」以及「告警的嚴重等級」。以下是針對 AI Agent 平台設計的三條核心告警規則：任務失敗率過高（critical）、P95 延遲超標（warning）、以及 LLM Token 消耗速率異常（warning），覆蓋了可用性、效能和成本三個關鍵面向：
 
 ```yaml
 # alertmanager/rules/ai-platform.yml
@@ -655,6 +673,8 @@ groups:
 
 ### 9.7.1 Trace → Metrics → Logs 關聯
 
+在實際排錯場景中，單一可觀測性支柱往往不足以定位根因。Trace 告訴你「哪個請求慢了」，Metrics 告訴你「整體趨勢如何」，Logs 告訴你「具體錯誤訊息是什麼」。以下函式展示了如何以 trace_id 為錨點，將三者串聯起來，實現從告警到根因的一站式診斷：
+
 ```python
 # 可觀測性關聯查詢
 # ================================================================
@@ -701,6 +721,8 @@ async def investigate_slow_task(task_id: str):
 ## 9.8 LLM 專屬可觀測性模式
 
 ### 9.8.1 Prompt 與 Response 記錄
+
+LLM 的輸入（Prompt）和輸出（Response）是 AI Agent 平台最核心的資料資產。將它們納入可觀測性體系，不僅有助於除錯，還能支援 Prompt 版本回溯、輸出品質分析和合規審計。以下實作展示如何在每次 LLM 調用時自動記錄結構化的 Prompt/Response 日誌，並透過 OTel Span 屬性實現與追蹤的關聯：
 
 ```python
 # observability/llm_logging.py
@@ -827,6 +849,8 @@ class LLMObservability:
 
 ### 9.8.2 Token 成本歸因
 
+在企業環境中，LLM 的 Token 消耗直接對應營運成本。要實現精確的成本分攤，必須追蹤每個 Agent、每個部門、每個模型的 Token 使用量。以下模組建立了多維度的成本歸因系統，將 Token 消耗拆解到 department、agent、model 三個維度，支援後續的預算控管和優化決策：
+
 ```python
 # observability/cost_attribution.py
 # ================================================================
@@ -940,6 +964,8 @@ class CostAttribution:
 - **三維度分解**：`by_department`（預算控制）、`by_agent`（效率優化）、`by_model`（選型決策）——同一份數據從三個角度回答不同的管理問題。
 
 ### 9.8.3 Hallucination 檢測指標
+
+幻覺（Hallucination）是 LLM 應用中最令人頭痛的可靠性問題。在企業場景中，Agent 產生虛假資訊可能導致嚴重的業務後果。以下模組設計了一套即時幻覺檢測機制，透過三個核心指標——上下文忠實度、事實一致性、與置信度校準——在每次 LLM 回應時自動評估輸出品質，並將結果記錄為可觀測性指標：
 
 ```python
 # observability/hallucination_detection.py
@@ -1056,6 +1082,8 @@ class HallucinationDetector:
 
 ### 9.8.4 Prompt 版本管理
 
+Prompt 是 AI Agent 的靈魂，其品質直接影響輸出品質。在生產環境中，Prompt 會隨著業務需求持續迭代，因此需要一套版本管理機制來追蹤每次變更、對應的輸出品質變化，以及必要時的快速回滾能力。以下實作建立了基於 Git 風格的 Prompt 版本控制系統，與可觀測性體系深度整合：
+
 ```python
 # observability/prompt_versioning.py
 # ================================================================
@@ -1169,6 +1197,8 @@ class PromptRegistry:
 
 ### 9.9.1 完整 Pipeline
 
+OTel Collector 是整個可觀測性架構的中樞，負責接收、處理和轉發所有遙測資料。以下配置定義了一條完整的 Collector Pipeline：從多種接收器（OTLP gRPC/HTTP、Fluentd、Prometheus）採集資料，經過記憶體限制、屬性注入和批量處理後，分別路由到 Traces（Jaeger）、Metrics（Prometheus）和 Logs（Loki）三個後端存儲：
+
 ```yaml
 # otel-collector-config.yaml
 # ================================================================
@@ -1270,6 +1300,8 @@ service:
 
 ### 9.9.2 Agent 識別注入
 
+在多 Agent 協作環境中，每條遙測資料必須攜帶足夠的上下文資訊才能被正確歸因。透過 OTel Resource 和 Baggage 機制，我們可以在 Agent 啟動時注入平台級的身份屬性（agent_id、department、version），使所有後續產生的 Span、Metrics 和 Logs 自動攜帶這些標籤，無需每個 Agent 手動附加：
+
 ```python
 # observability/context_propagation.py
 # ================================================================
@@ -1321,6 +1353,8 @@ class AgentContextPropagator:
 ## 9.10 日誌跨 Agent 關聯
 
 ### 9.10.1 TraceID 貫穿
+
+在跨 Agent 調用場景中，一個使用者請求會穿越 CCA → IT Agent → HR Agent 等多個服務。要實現端到端的可觀測性，必須確保 trace_id 在整個調用鏈中一致傳遞。以下實作展示了如何利用 OTel Context Propagation 自動在 Agent 間傳播追蹤上下文，並提供輔助函式將日誌和指標與 trace_id 關聯：
 
 ```python
 # observability/cross_agent_correlation.py

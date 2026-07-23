@@ -56,6 +56,8 @@ graph TB
 
 ### 10.2.1 消息流設計
 
+Portal 的核心是對話界面，而對話的基礎是消息數據模型。以下定義了四大核心實體——Message（消息）、ToolCall（工具調用）、Task（任務）、AuditEntry（審計記錄）。這些 TypeScript 介面不僅是前端的型別約束，也是前後端 API 的合約：
+
 ```typescript
 // frontend/types/message.ts
 // ================================================================
@@ -112,6 +114,8 @@ interface AuditEntry {
 - **`ToolCall` 帶 `durationMs`**：前端可以計算「Agent 花了多久等待工具返回」，區分「LLM 推理時間」和「工具執行時間」，幫助優化瓶頸。
 
 ### 10.2.2 聊天組件
+
+聊天組件是使用者與 AI Agent 交互的主要入口。它透過 Socket.IO 與後端保持長連接，實現實時消息推送、工具調用卡片渲染、以及打字指示器等功能。以下實作採用 React Hooks 模式，包含樂觀更新（Optimistic Update）策略，確保使用者獲得即時的回應體驗：
 
 ```tsx
 // frontend/components/ChatInterface.tsx
@@ -236,6 +240,8 @@ export function ChatInterface() {
 
 ### 10.2.3 消息氣泡組件
 
+消息氣泡是對話界面中最基礎的視覺單元。根據角色不同（使用者 vs Agent），氣泡的對齊方向、背景顏色和附加資訊都不同。以下組件實現了使用者消息靠右（藍色背景）、Agent 消息靠左（灰色背景）的標準聊天 UX：
+
 ```tsx
 // frontend/components/MessageBubble.tsx
 // ================================================================
@@ -286,6 +292,8 @@ export function MessageBubble({ message }: { message: Message }) {
 ## 10.3 任務管理面板
 
 ### 10.3.1 任務列表
+
+任務列表讓管理員和使用者能即時追蹤所有 AI Agent 正在執行或已完成的任務。支援按狀態（pending、running、completed、failed）篩選，每個任務以卡片形式展示類型、ID、狀態和時間：
 
 ```tsx
 // frontend/components/TaskList.tsx
@@ -372,6 +380,8 @@ function TaskCard({ task }: { task: Task }) {
 - **卡片 hover 效果**：`hover:shadow-md` 提供微妙的互動反饋，暗示「可點擊」。企業 UI 不需要花哨動畫，但需要清晰的互動暗示。
 
 ### 10.3.2 任務詳情頁
+
+任務詳情頁是審計和排錯的核心頁面。它以四張卡片分別展示任務的基本資訊、對話記錄、工具調用日誌、以及 OTel 追蹤連結，讓管理員能從宏觀到微觀逐步深入排查問題：
 
 ```tsx
 // frontend/app/tasks/[id]/page.tsx
@@ -461,6 +471,8 @@ export default async function TaskDetail({ params }: { params: { id: string } })
 ## 10.4 審計面板
 
 ### 10.4.1 審計日誌查詢
+
+審計面板是企業合規（如 SOC 2）的核心 UI。它允許管理員按使用者、Agent、工具名稱、時間範圍等多維度篩選審計日誌，快速追溯「誰在什麼時候做了什麼操作、結果如何」：
 
 ```tsx
 // frontend/components/AuditPanel.tsx
@@ -575,6 +587,8 @@ export function AuditPanel() {
 
 ### 10.5.1 文檔上傳與瀏覽
 
+知識庫管理的核心是文檔上傳與分類。上傳組件支援拖拽、點擊兩種方式，透過 FormData 將檔案提交至後端 API，後端自動觸發文字提取和向量化流程。文檔列表支援按類型篩選、關鍵字搜索和永久刪除：
+
 ```tsx
 // frontend/components/KBManager.tsx
 // ================================================================
@@ -650,6 +664,8 @@ export function KBManager() {
 
 ### 10.6.1 WebSocket 連接
 
+實時監控的基礎是 WebSocket 長連接。此連接管理器封裝了 Socket.IO 的生命週期，包含自動重連、心跳檢測、指標訂閱和告警接收。連接中斷時會指數退避重試，並在控制台輸出重連狀態，方便開發人員排錯：
+
 ```typescript
 // frontend/lib/socket.ts
 // ================================================================
@@ -687,6 +703,8 @@ socket.on('alert:triggered', (data) => {
 - **環境變量 `NEXT_PUBLIC_WS_URL`**：`NEXT_PUBLIC_` 前綴讓 Next.js 在客戶端也能訪問。生產環境用 `wss://` 加密連接，開發環境用 `ws://`。
 
 ### 10.6.2 監控儀表板
+
+監控儀表板將 WebSocket 接收到的實時指標以視覺化卡片形式呈現。每張卡片顯示一個 KPI 的當前值與歷史趨勢（迷你折線圖），同時底部面板以滾動列表方式展示即時告警：
 
 ```tsx
 // frontend/components/MonitorDashboard.tsx
@@ -740,6 +758,8 @@ export function MonitorDashboard() {
 ## 10.7 OAuth2/OIDC 集成
 
 ### 10.7.1 後端認證配置
+
+企業級 Portal 必須整合 OAuth2/OIDC 單點登入。後端使用 Authlib 實現 OAuth2 Authorization Code Flow，支援 Google、Microsoft 等主流身份供應商。以下配置展示了完整的認證參數初始化、授權 URL 生成、Callback 回調處理和 JWT Token 驗證：
 
 ```python
 # portal/backend/auth/oauth2.py
@@ -864,6 +884,8 @@ async def auth_callback(request: Request):
 
 ### 10.7.2 前端認證管理
 
+前端認證管理器負責 OAuth2 流程的客戶端部分——觸發登入跳轉、處理 Callback 回調、管理 JWT Token 的儲存與刷新。它採用 Context + Provider 模式，讓整個應用的所有組件都能透過 Hook 取得當前使用者狀態和登入方法：
+
 ```typescript
 // frontend/lib/auth.ts
 // ================================================================
@@ -957,6 +979,8 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 ## 10.8 RBAC 中間件
 
 ### 10.8.1 後端 RBAC
+
+RBAC（Role-Based Access Control）是企業合規的硬性要求。後端中間件根據使用者的角色（admin / analyst / operator / viewer）判斷其對 API 端點的存取權限。角色與權限的映射以矩陣形式定義，管理員可在設定檔中動態調整：
 
 ```python
 # portal/backend/auth/rbac.py
@@ -1073,6 +1097,8 @@ async def get_audit_logs(
 
 ### 10.9.1 全局錯誤邊界
 
+React Error Boundary 是防止整個應用因單一元件異常而崩潰的最後防線。它捕獲渲染期間、生命週期方法和建構函數中的未處理異常，並以友好的降級 UI 替代白屏，同時提供重試和日誌回報的入口：
+
 ```tsx
 // frontend/components/ErrorBoundary.tsx
 // ================================================================
@@ -1141,6 +1167,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
 - **「重試」按鈕**：重置 `hasError` 狀態，重新渲染子組件。很多錯誤是暫態的（如網絡波動），重試即可恢復。使用者不需要刷新整個頁面。
 
 ### 10.9.2 Agent 錯誤狀態處理
+
+Agent 錯誤與一般前端錯誤不同——它可能涉及工具呼叫超時、LLM 速率限制、上下文溢位等場景。此組件從 WebSocket 接收 Agent 錯誤事件，根據錯誤類型動態呈現不同的恢復建議（重試、換模型、縮減上下文），並提供一鍵重試按鈕：
 
 ```tsx
 // frontend/components/AgentErrorState.tsx
@@ -1232,6 +1260,8 @@ export function AgentErrorState({ error, onRetry }: { error: AgentError; onRetry
 ## 10.10 對話線程管理
 
 ### 10.10.1 會話存儲
+
+對話線程的持久化是 Portal 的重要功能。後端使用 MongoDB 儲存線程（Thread）物件，每個線程包含多條消息（Message）。支援建立新線程、追加消息、列出使用者的所有線程、以及全文搜索歷史對話：
 
 ```python
 # portal/backend/conversation/thread.py
@@ -1343,6 +1373,8 @@ class ThreadManager:
 - **全文搜索用 MongoDB Atlas**：`$text: { $search: query }` 使用 MongoDB Atlas 的全文索引。比自己建 Elasticsearch 簡單得多，且對 Portal 的搜索量綽綽有餘。
 
 ### 10.10.2 前端線程 UI
+
+對話線程側邊欄類似 ChatGPT 的左側面板——固定寬度 264px，上方為搜索框，中間為可滾動的線程列表（選中狀態以藍色左邊框標示），底部固定「新對話」按鈕。整體採用 Tailwind CSS 搭配 Flexbox 實現響應式佈局：
 
 ```tsx
 // frontend/components/ThreadSidebar.tsx
