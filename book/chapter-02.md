@@ -84,25 +84,25 @@ graph TD
         CloudNative[☁️ Cloud-Native Foundation]
     end
 
-    Portal -. CloudNative
-    CCA -. CloudNative
-    MCPSvc -. CloudNative
-    HRAgent -. CloudNative
-    ITAgent -. CloudNative
-    FinAgent -. CloudNative
+    Portal -.-> CloudNative
+    CCA -.-> CloudNative
+    MCPSvc -.-> CloudNative
+    HRAgent -.-> CloudNative
+    ITAgent -.-> CloudNative
+    FinAgent -.-> CloudNative
 
-    Letta[🔧 Letta Agent Framework] -. CCA
-    Letta -. HRAgent
-    Letta -. ITAgent
-    Letta -. FinAgent
+    Letta[🔧 Letta Agent Framework] -.-> CCA
+    Letta -.-> HRAgent
+    Letta -.-> ITAgent
+    Letta -.-> FinAgent
 
     OTel[📊 OpenTelemetry] --> Monitoring[📈 Monitoring Backend<br/>Prometheus + Grafana + Loki + Jaeger]
-    CCA -. OTel
-    HRAgent -. OTel
-    ITAgent -. OTel
-    FinAgent -. OTel
-    MCPSvc -. OTel
-    Portal -. OTel
+    CCA -.-> OTel
+    HRAgent -.-> OTel
+    ITAgent -.-> OTel
+    FinAgent -.-> OTel
+    MCPSvc -.-> OTel
+    Portal -.-> OTel
 
     %% 節點樣式：加大邊框
     style Portal fill:#E3F2FD,stroke:#1565C0,stroke-width:3px
