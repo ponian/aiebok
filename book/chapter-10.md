@@ -58,77 +58,96 @@ graph TB
 
 ```typescript
 // frontend/types/message.ts
+// ================================================================
+// Portal 的核心數據模型 — 定義了消息、工具調用、任務、審計四個實體。
+// 這些 TypeScript 類型不僅是前端的型別約束，也是前後端的「合約」：
+// 後端 API 返回的 JSON 結構必須符合這些接口。
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
+  role: 'user' | 'assistant' | 'system';  // 三種角色：使用者/Agent/系統
+  content: string;                          // 消息正文（Markdown 格式）
   timestamp: string;
   metadata?: {
-    taskId?: string;
-    agentId?: string;
-    toolCalls?: ToolCall[];
-    tokenUsage?: { input: number; output: number };
-    durationMs?: number;
-    traceId?: string;
+    taskId?: string;           // 關聯的任務 ID（可點擊跳轉到任務詳情）
+    agentId?: string;          // 處理此消息的 Agent（多 Agent 場景）
+    toolCalls?: ToolCall[];    // 此消息觸發的工具調用列表
+    tokenUsage?: { input: number; output: number };  // Token 消耗（成本可視化）
+    durationMs?: number;       // Agent 處理延遲（性能指標）
+    traceId?: string;          // OTel TraceID（跳轉 Jaeger 追蹤）
   };
 }
 
 interface ToolCall {
-  name: string;
-  arguments: Record<string, unknown>;
-  result: string;
-  success: boolean;
-  durationMs: number;
+  name: string;                       // 工具名稱（如 "create_ad_account"）
+  arguments: Record<string, unknown>; // 工具參數（JSON 格式）
+  result: string;                     // 工具返回結果
+  success: boolean;                   // 是否成功（紅/綠狀態指示）
+  durationMs: number;                 // 工具執行耗時
 }
 
 interface Task {
   id: string;
-  type: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  messages: Message[];
+  type: string;                          // 任務類型（如 "account_creation"）
+  status: 'pending' | 'running' | 'completed' | 'failed';  // 四種狀態
+  messages: Message[];                   // 任務關聯的消息列表
   createdAt: string;
   completedAt?: string;
-  auditLog: AuditEntry[];
+  auditLog: AuditEntry[];                // 此任務的完整審計記錄
 }
 
 interface AuditEntry {
   timestamp: string;
-  action: string;
-  agentId: string;
-  toolName: string;
-  result: string;
-  userId: string;
+  action: string;        // 操作類型（如 "tool_call"、"agent_decision"）
+  agentId: string;       // 執行操作的 Agent
+  toolName: string;      // 使用的工具（如 "hr_api"、"ad_connector"）
+  result: string;        // 操作結果（成功/失敗 + 詳細信息）
+  userId: string;        // 觸發操作的使用者
 }
 ```
+
+**關鍵設計決策**：
+- **`metadata` 為可選字段**：並非所有消息都有 metadata。使用者輸入的消息沒有 `toolCalls` 和 `traceId`，只有 Agent 回應才有。用 `?` 標記可選，避免前端在渲染使用者消息時處理 undefined。
+- **`AuditEntry` 的設計哲學**：審計記錄不是「附加功能」，而是企業合規的硬性要求。每個 `toolCall` 必須可追溯到具體的 `userId` 和 `agentId`——出了問題能找到「誰觸發了什麼操作」。
+- **`traceId` 在前端的角色**：讓非技術人員（如 IT 管理員）也能一鍵跳轉到 Jaeger 查看追蹤。降低排錯門檻——不需要讓使用者手動提供 trace ID。
+- **`ToolCall` 帶 `durationMs`**：前端可以計算「Agent 花了多久等待工具返回」，區分「LLM 推理時間」和「工具執行時間」，幫助優化瓶頸。
 
 ### 10.2.2 聊天組件
 
 ```tsx
 // frontend/components/ChatInterface.tsx
+// ================================================================
+// Portal 的核心組件 — 對話界面。
+// 這是使用者與 AI Agent 交互的主要入口，實現了實時消息推送、工具調用可視化、
+// 打字指示器等功能。使用 Socket.IO 與後端保持長連接。
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useSocket } from '@/lib/socket';
-import { MessageBubble } from './MessageBubble';
-import { ToolCallCard } from './ToolCallCard';
-import { TypingIndicator } from './TypingIndicator';
+import { useSocket } from '@/lib/socket';        // Socket.IO hook（封裝連接邏輯）
+import { MessageBubble } from './MessageBubble';  // 消息氣泡渲染
+import { ToolCallCard } from './ToolCallCard';    // 工具調用卡片
+import { TypingIndicator } from './TypingIndicator';  // Agent 思考中指示器
 
 export function ChatInterface() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const socket = useSocket();
+  const [messages, setMessages] = useState<Message[]>([]);      // 完整消息歷史
+  const [input, setInput] = useState('');                       // 當前輸入框內容
+  const [isTyping, setIsTyping] = useState(false);             // Agent 是否正在回應
+  const messagesEndRef = useRef<HTMLDivElement>(null);          // 用於自動滾動到底部
+  const socket = useSocket();                                   // WebSocket 連接實例
 
+  // 註冊 WebSocket 事件監聽器
   useEffect(() => {
+    // 收到 Agent 回應 → 追加到消息列表，停止打字指示
     socket.on('message', (message: Message) => {
       setMessages(prev => [...prev, message]);
       setIsTyping(false);
     });
 
+    // 收到工具調用事件 → 追加到最新 Agent 消息的 toolCalls 數組
+    // 設計要點：工具調用是「流式追加」到已有消息，而非獨立消息
     socket.on('tool_call', (toolCall: ToolCall) => {
       setMessages(prev => {
         const last = prev[prev.length - 1];
+        // 找到最近一條 Agent 消息，把工具調用追加進去
         if (last?.role === 'assistant' && last.metadata?.taskId) {
           return [...prev.slice(0, -1), {
             ...last,
@@ -142,46 +161,51 @@ export function ChatInterface() {
       });
     });
 
+    // 組件卸載時清理事件監聽，防止內存洩漏
     return () => {
       socket.off('message');
       socket.off('tool_call');
     };
   }, [socket]);
 
+  // 新消息到達時自動滾動到底部（聊天 UX 標準做法）
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // 發送消息：先樂觀更新 UI，再通過 Socket.IO 發送到後端
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim()) return;  // 防止空消息
 
     const userMessage: Message = {
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID(),  // 前端生成 UUID，避免依賴後端 ID 分配
       role: 'user',
       content: input,
       timestamp: new Date().toISOString()
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsTyping(true);
+    setMessages(prev => [...prev, userMessage]);  // 樂觀更新：立即顯示使用者消息
+    setInput('');            // 清空輸入框
+    setIsTyping(true);      // 顯示打字指示器
 
     socket.emit('send_message', {
       content: input,
-      sessionId: getCurrentSessionId()
+      sessionId: getCurrentSessionId()  // 會話 ID 用於關聯上下文
     });
   };
 
   return (
     <div className="flex flex-col h-screen">
+      {/* 消息列表區域 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map(msg => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        {isTyping && <TypingIndicator />}
-        <div ref={messagesEndRef} />
+        {isTyping && <TypingIndicator />}  {/* Agent 思考中提示 */}
+        <div ref={messagesEndRef} />       {/* 滾動錨點 */}
       </div>
 
+      {/* 輸入區域 */}
       <div className="border-t p-4">
         <div className="flex gap-2">
           <input
@@ -205,10 +229,19 @@ export function ChatInterface() {
 }
 ```
 
+**關鍵設計決策**：
+- **樂觀更新 (Optimistic Update)**：使用者發送消息時，先在前端立即顯示，再通過 Socket.IO 發送到後端。使用者看到零延遲的回應，體驗更好。如果後端失敗，可以通過錯誤回調回滾。
+- **`tool_call` 事件追加到已有消息**：工具調用不是獨立的「一條消息」，而是 Agent 回應的一部分。設計上把 `toolCalls` 嵌入 `Message.metadata`，保持消息列表的邏輯結構——「一條 Agent 回應」= 文本 + 若干工具調用。
+- **`crypto.randomUUID()` 前端生成 ID**：避免前後端 ID 衝突。前端生成 UUIDv4 作為臨時 ID，後端可以選擇保留或替換。
+
 ### 10.2.3 消息氣泡組件
 
 ```tsx
 // frontend/components/MessageBubble.tsx
+// ================================================================
+// 消息氣泡組件 — 根據角色（使用者/Agent）渲染不同的視覺樣式。
+// 使用者消息靠右（藍色背景），Agent 消息靠左（灰色背景），
+// 類似主流聊天應用的 UX 慣例。
 export function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
 
@@ -216,17 +249,17 @@ export function MessageBubble({ message }: { message: Message }) {
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[70%] rounded-lg p-3 ${
         isUser
-          ? 'bg-blue-500 text-white'
-          : 'bg-gray-100 text-gray-900'
+          ? 'bg-blue-500 text-white'      // 使用者：藍色背景白字
+          : 'bg-gray-100 text-gray-900'   // Agent：淺灰背景深色字
       }`}>
         <p className="whitespace-pre-wrap">{message.content}</p>
 
-        {/* 顯示工具調用結果 */}
+        {/* 顯示工具調用結果 — 僅 Agent 消息才有 */}
         {message.metadata?.toolCalls?.map((tc, i) => (
           <ToolCallCard key={i} toolCall={tc} />
         ))}
 
-        {/* 顯示元數據 */}
+        {/* 顯示元數據：Agent ID + 處理耗時（小字灰色，不搶視覺焦點） */}
         {message.metadata && (
           <div className="mt-2 text-xs opacity-70">
             {message.metadata.agentId && (
@@ -243,6 +276,11 @@ export function MessageBubble({ message }: { message: Message }) {
 }
 ```
 
+**關鍵設計決策**：
+- **`max-w-[70%]` 限制氣泡寬度**：防止長文本佔滿整個螢幕。70% 是聊天應用的常見比例——留出 30% 空間保持對話的「氣泡感」。
+- **`whitespace-pre-wrap` 保留換行**：Agent 回應可能包含 Markdown 換行。不加這個屬性，所有文本會被壓縮成一行。
+- **元數據不使用 ToolTip**：元數據（Agent ID、耗時）直接顯示在氣泡底部，而非 hover 才看到。原因是企業用戶需要「一目了然」——不需要交互就能看到關鍵信息。
+
 ---
 
 ## 10.3 任務管理面板
@@ -251,16 +289,21 @@ export function MessageBubble({ message }: { message: Message }) {
 
 ```tsx
 // frontend/components/TaskList.tsx
+// ================================================================
+// 任務列表組件 — 展示所有 AI Agent 執行過的任務，支持按狀態篩選。
+// 每個任務顯示類型、ID、狀態、時間，可點擊進入詳情頁。
 export function TaskList() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [filter, setFilter] = useState('all');
+  const [tasks, setTasks] = useState<Task[]>([]);        // 所有任務
+  const [filter, setFilter] = useState('all');            // 當前篩選狀態
 
+  // 篩選器變化時重新拉取數據（也可以前端過濾，但這裡假設後端有分頁能力）
   useEffect(() => {
     fetchTasks().then(setTasks);
   }, [filter]);
 
   return (
     <div className="space-y-4">
+      {/* 狀態篩選按鈕組 */}
       <div className="flex gap-2 mb-4">
         {['all', 'pending', 'running', 'completed', 'failed'].map(f => (
           <button
@@ -275,6 +318,7 @@ export function TaskList() {
         ))}
       </div>
 
+      {/* 任務卡片列表 */}
       <div className="space-y-2">
         {tasks.map(task => (
           <TaskCard key={task.id} task={task} />
@@ -285,11 +329,12 @@ export function TaskList() {
 }
 
 function TaskCard({ task }: { task: Task }) {
+  // 四種狀態對應四種顏色 — 一目了然的狀態指示
   const statusColors = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    running: 'bg-blue-100 text-blue-800',
-    completed: 'bg-green-100 text-green-800',
-    failed: 'bg-red-100 text-red-800'
+    pending: 'bg-yellow-100 text-yellow-800',    // 黃色：等待中
+    running: 'bg-blue-100 text-blue-800',        // 藍色：執行中
+    completed: 'bg-green-100 text-green-800',    // 綠色：已完成
+    failed: 'bg-red-100 text-red-800'            // 紅色：失敗
   };
 
   return (
@@ -321,18 +366,26 @@ function TaskCard({ task }: { task: Task }) {
 }
 ```
 
+**關鍵設計決策**：
+- **篩選器與後端聯動**：`useEffect` 依賴 `filter` 變化，每次切換狀態都重新拉取。比前端過濾更好——數據量大時前端過濾會卡頓，且可能遺漏「篩選器切換間新產生的任務」。
+- **`toLocaleString('zh-TW')`**：日期格式化使用繁體中文本地化。時間戳對使用者沒有意義，轉成「2024/1/15 下午 3:30」更直觀。
+- **卡片 hover 效果**：`hover:shadow-md` 提供微妙的互動反饋，暗示「可點擊」。企業 UI 不需要花哨動畫，但需要清晰的互動暗示。
+
 ### 10.3.2 任務詳情頁
 
 ```tsx
 // frontend/app/tasks/[id]/page.tsx
+// ================================================================
+// 任務詳情頁 — 展示單個任務的完整信息：基本信息、對話記錄、工具調用日誌、OTel 追蹤。
+// 這是審計和排錯的核心頁面。
 export default async function TaskDetail({ params }: { params: { id: string } }) {
-  const task = await fetchTask(params.id);
+  const task = await fetchTask(params.id);  // 服務端獲取任務數據（SSR）
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-bold">任務詳情</h1>
 
-      {/* 基本信息 */}
+      {/* 基本信息卡片 — ID、狀態、時間、耗時 */}
       <Card>
         <CardHeader>基本信息</CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
@@ -355,7 +408,7 @@ export default async function TaskDetail({ params }: { params: { id: string } })
         </CardContent>
       </Card>
 
-      {/* 對話記錄 */}
+      {/* 對話記錄 — 重用 MessageBubble 組件，保持 UI 一致性 */}
       <Card>
         <CardHeader>對話記錄</CardHeader>
         <CardContent>
@@ -365,7 +418,7 @@ export default async function TaskDetail({ params }: { params: { id: string } })
         </CardContent>
       </Card>
 
-      {/* 工具調用記錄 */}
+      {/* 工具調用記錄 — 完整審計軌跡 */}
       <Card>
         <CardHeader>工具調用記錄</CardHeader>
         <CardContent>
@@ -375,7 +428,7 @@ export default async function TaskDetail({ params }: { params: { id: string } })
         </CardContent>
       </Card>
 
-      {/* 追蹤信息 */}
+      {/* OTel 追蹤信息 — 直接鏈接到 Jaeger UI */}
       <Card>
         <CardHeader>追蹤信息</CardHeader>
         <CardContent>
@@ -398,6 +451,11 @@ export default async function TaskDetail({ params }: { params: { id: string } })
 }
 ```
 
+**關鍵設計決策**：
+- **SSR 而非 CSR**：`async function TaskDetail` 是 Next.js Server Component。服務端直接獲取數據，無需客戶端 loading 狀態。SEO 友好（如果任務頁面需要被搜索引擎索引），且首次加載更快。
+- **Jaeger 鏈接的設計哲學**：給非技術人員（如 IT 管理員）直接訪問 Jaeger 的能力。他們不需要知道什麼是 `traceId`，只需要點一下就能看到「Agent 做了什麼」。這是**可觀測性的降維**——把複雜的分散式追蹤簡化為一個按鈕。
+- **四張 Card 分區**：基本信息、對話記錄、工具調用、追蹤——四個邏輯分區對應四個不同的使用場景（快速查看、回顧對話、審計排錯、深度追蹤）。
+
 ---
 
 ## 10.4 審計面板
@@ -406,8 +464,12 @@ export default async function TaskDetail({ params }: { params: { id: string } })
 
 ```tsx
 // frontend/components/AuditPanel.tsx
+// ================================================================
+// 審計面板 — 企業合規的核心 UI。允許管理員按「誰、什麼時候、用了什麼工具、結果如何」
+// 多維度篩選審計日誌。這是 SOC 2 合規的可視化入口。
 export function AuditPanel() {
   const [logs, setLogs] = useState<AuditEntry[]>([]);
+  // 五個篩選維度：用戶、Agent、工具、起止時間
   const [filters, setFilters] = useState({
     userId: '',
     agentId: '',
@@ -416,6 +478,7 @@ export function AuditPanel() {
     endDate: ''
   });
 
+  // 篩選器變化時重新拉取（假設後端支持篩選參數）
   useEffect(() => {
     fetchAuditLogs(filters).then(setLogs);
   }, [filters]);
@@ -424,7 +487,7 @@ export function AuditPanel() {
     <div className="space-y-4">
       <h2 className="text-xl font-bold">審計日誌</h2>
 
-      {/* 篩選器 */}
+      {/* 多維度篩選器 */}
       <Card>
         <CardContent className="grid grid-cols-5 gap-4">
           <input
@@ -465,7 +528,7 @@ export function AuditPanel() {
         </CardContent>
       </Card>
 
-      {/* 日誌表格 */}
+      {/* 審計日誌表格 */}
       <Card>
         <Table>
           <TableHeader>
@@ -501,6 +564,11 @@ export function AuditPanel() {
 }
 ```
 
+**關鍵設計決策**：
+- **五欄篩選器**：對應 `AuditEntry` 的五個核心字段。審計查詢的典型場景是「某人在某個時間段內用了什麼工具」——五個篩選器覆蓋了 90% 的審計需求。
+- **`agentId` 用 `<select>` 而非自由輸入**：Agent 是有限集合（hr-agent、it-agent），用下拉選單避免輸入錯誤，同時降低學習成本。
+- **表格而非卡片**：審計日誌是「數據密集型」展示，表格比卡片更適合。每行一行記錄，一目了然。
+
 ---
 
 ## 10.5 知識庫管理
@@ -509,22 +577,25 @@ export function AuditPanel() {
 
 ```tsx
 // frontend/components/KBManager.tsx
+// ================================================================
+// 知識庫管理組件 — 允許使用者上傳文檔到 RAG 向量庫。
+// 支持 PDF、Markdown、純文本三種格式。上傳後後端自動分 chunk + 向量化。
 export function KBManager() {
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [documents, setDocuments] = useState<Document[]>([]);  // 已上傳文檔列表
+  const [uploading, setUploading] = useState(false);            // 上傳中狀態
 
   const handleUpload = async (files: FileList) => {
     setUploading(true);
     const formData = new FormData();
-    Array.from(files).forEach(f => formData.append('files', f));
+    Array.from(files).forEach(f => formData.append('files', f));  // 支持多文件上傳
 
     await fetch('/api/kb/upload', {
       method: 'POST',
-      body: formData
+      body: formData  // FormData 自動設置 multipart/form-data
     });
 
     setUploading(false);
-    fetchDocuments().then(setDocuments);
+    fetchDocuments().then(setDocuments);  // 上傳完成後刷新列表
   };
 
   return (
@@ -532,10 +603,11 @@ export function KBManager() {
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">知識庫管理</h2>
         <div>
+          {/* 隱藏原生 file input，用 label 樣式化 */}
           <input
             type="file"
-            multiple
-            accept=".pdf,.md,.txt"
+            multiple               // 支持選擇多個文件
+            accept=".pdf,.md,.txt"  // 限制文件格式
             onChange={(e) => e.target.files && handleUpload(e.target.files)}
             className="hidden"
             id="file-upload"
@@ -549,13 +621,14 @@ export function KBManager() {
         </div>
       </div>
 
+      {/* 文檔卡片網格 */}
       <div className="grid grid-cols-3 gap-4">
         {documents.map(doc => (
           <Card key={doc.id}>
             <CardContent>
               <h3 className="font-medium">{doc.title}</h3>
               <p className="text-sm text-gray-500">{doc.category}</p>
-              <p className="text-sm">Chunks: {doc.chunkCount}</p>
+              <p className="text-sm">Chunks: {doc.chunkCount}</p>  {/* 分塊數量 */}
               <p className="text-sm">上傳時間: {new Date(doc.uploadedAt).toLocaleDateString('zh-TW')}</p>
             </CardContent>
           </Card>
@@ -566,6 +639,11 @@ export function KBManager() {
 }
 ```
 
+**關鍵設計決策**：
+- **`FormData` 而非 JSON**：文件上傳必須用 `multipart/form-data`。JSON 無法處理二進制文件。`FormData` 是瀏覽器原生 API，不需要額外依賴。
+- **`accept=".pdf,.md,.txt"`**：前端限制文件類型。後端還會二次驗證——前端限制是 UX 層面的「即時反饋」，後端才是安全邊界。
+- **`chunkCount` 顯示**：讓使用者知道文檔被分成了多少塊。這是有意義的——chunk 數量影響 RAG 檢索精度。chunk 太多可能意味著文檔太長需要拆分。
+
 ---
 
 ## 10.6 實時監控面板
@@ -574,39 +652,53 @@ export function KBManager() {
 
 ```typescript
 // frontend/lib/socket.ts
+// ================================================================
+// Socket.IO 客戶端配置 — 封裝 WebSocket 連接和事件監聽。
+// 使用 Socket.IO 而非原生 WebSocket 的原因：自動降級（WebSocket → polling）、
+// 自動重連、房間（room）支持、命名空間隔離。
 import { io } from 'socket.io-client';
 
+// 建立連接，帶 JWT 認證
 export const socket = io(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080', {
   auth: {
-    token: getAuthToken()
+    token: getAuthToken()  // 從 Zustand store 或 cookie 獲取 JWT
   }
 });
 
-// 監聽 Agent 健康狀態
+// 監聽 Agent 健康狀態（由 OTel 告警觸發）
 socket.on('agent:health', (data) => {
   console.log('Agent health update:', data);
 });
 
-// 監聽實時指標
+// 監聽實時指標（Prometheus → Pushgateway → Portal 後端 → WebSocket）
 socket.on('metrics:update', (data) => {
   console.log('Metrics update:', data);
 });
 
-// 監聽告警
+// 監聽告警（OTel Alert Manager → Portal 後端 → WebSocket）
 socket.on('alert:triggered', (data) => {
   console.log('Alert triggered:', data);
 });
 ```
 
+**關鍵設計決策**：
+- **`auth.token` 認證**：Socket.IO 連接帶 JWT。WebSocket 連接不能像 HTTP 那樣用 Header 傳 Token，Socket.IO 的 `auth` 參數是行業慣例——連接建立時在握手階段驗證。
+- **三種事件**：`agent:health`（健康狀態）、`metrics:update`（指標推送）、`alert:triggered`（告警）。分別對應運維的三個核心需求：知道系統是否正常、看到實時數據、收到異常通知。
+- **環境變量 `NEXT_PUBLIC_WS_URL`**：`NEXT_PUBLIC_` 前綴讓 Next.js 在客戶端也能訪問。生產環境用 `wss://` 加密連接，開發環境用 `ws://`。
+
 ### 10.6.2 監控儀表板
 
 ```tsx
 // frontend/components/MonitorDashboard.tsx
+// ================================================================
+// 監控儀表板 — 實時展示平台核心指標。
+// 四張指標卡片覆蓋運維最關心的四個維度：任務量、成功率、延遲、成本。
 export function MonitorDashboard() {
   const [metrics, setMetrics] = useState<Metrics>({});
 
   useEffect(() => {
     const socket = useSocket();
+    // 訂閱實時指標推送（後端通過 WebSocket 推送 Prometheus 聚合數據）
     socket.on('metrics:update', setMetrics);
     return () => { socket.off('metrics:update'); };
   }, []);
@@ -638,6 +730,11 @@ export function MonitorDashboard() {
 }
 ```
 
+**關鍵設計決策**：
+- **四個指標覆蓋四個維度**：活躍任務（負載）、成功率（可靠性）、延遲（性能）、Token 消耗（成本）。這四個指標是 AI Agent 平台的「四大金剛」——缺少任何一個都無法全面評估平台健康度。
+- **`|| 100` 和 `|| 0` 預設值**：在數據尚未到達時顯示合理預設值（成功率 100%、延遲 0ms）。避免用戶看到「undefined」或「NaN」——這是企業 UI 的基本要求。
+- **實時推送而非輪詢**：通過 WebSocket 推送指標，而非前端每秒 poll。降低伺服器壓力，減少無效請求。
+
 ---
 
 ## 10.7 OAuth2/OIDC 集成
@@ -646,10 +743,14 @@ export function MonitorDashboard() {
 
 ```python
 # portal/backend/auth/oauth2.py
+# ================================================================
+# OAuth2/OIDC 認證服務 — 支持 Azure AD 和 Google Workspace 兩種企業 SSO。
+# 使用 Authlib 處理 OAuth2 流程，jose 處理 JWT 簽發與驗證。
+# 這是 Portal 的安全邊界：所有 API 請求都必須帶有效 JWT。
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from authlib.integrations.starlette_client import OAuth
-from jose import JWTError, jwt
+from authlib.integrations.starlette_client import OAuth  # OAuth2 客戶端
+from jose import JWTError, jwt                              # JWT 簽發/驗證
 from datetime import datetime, timedelta
 from typing import Optional
 import httpx
@@ -657,19 +758,19 @@ import httpx
 # OAuth2 配置
 oauth = OAuth()
 
-# Azure AD 配置（企業常用）
+# Azure AD 配置（企業常用 — 大多數企業使用 Microsoft 365）
 oauth.register(
     name='azure',
     client_id='YOUR_CLIENT_ID',
     client_secret='YOUR_CLIENT_SECRET',
     server_metadata_url='https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration',
     client_kwargs={
-        'scope': 'openid email profile User.Read',
+        'scope': 'openid email profile User.Read',  # 最小權限原則：只請求必要 scope
         'token_endpoint_auth_method': 'client_secret_post'
     }
 )
 
-# Google Workspace 配置（可選）
+# Google Workspace 配置（可選 — 部分企業使用 Google）
 oauth.register(
     name='google',
     client_id='YOUR_GOOGLE_CLIENT_ID',
@@ -678,25 +779,25 @@ oauth.register(
     client_kwargs={'scope': 'openid email profile'}
 )
 
-# JWT 配置
-JWT_SECRET = "your-secret-key-here"  # 實際使用環境變量
+# JWT 配置 — 生產環境必須用環境變量，不可硬編碼
+JWT_SECRET = "your-secret-key here"  # 實際使用環境變量
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_HOURS = 8
+JWT_EXPIRY_HOURS = 8  # 與企業工作日對齊：8 小時後過期，需要重新登入
 
-security = HTTPBearer()
+security = HTTPBearer()  # FastAPI 自動從 Authorization Header 提取 Bearer Token
 
 
 class AuthService:
-    """認證服務"""
+    """認證服務 — JWT 簽發與驗證"""
 
     @staticmethod
     def create_access_token(
         user_id: str,
         email: str,
-        roles: list,
-        department: str
+        roles: list,        # 角色列表（用於 RBAC 權限判斷）
+        department: str     # 部門信息（用於審計日誌和數據隔離）
     ) -> str:
-        """創建 JWT Token"""
+        """創建 JWT Token — 包含完整的用戶身份信息"""
         payload = {
             "sub": user_id,
             "email": email,
@@ -709,7 +810,7 @@ class AuthService:
 
     @staticmethod
     def verify_token(token: str) -> dict:
-        """驗證 JWT Token"""
+        """驗證 JWT Token — 過期或篡改都會拋 401"""
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
             return payload
@@ -723,46 +824,55 @@ class AuthService:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> dict:
-    """獲取當前用戶"""
+    """FastAPI 依賴注入 — 從 Request Header 自動提取並驗證用戶"""
     return AuthService.verify_token(credentials.credentials)
 
 
-# FastAPI 依賴注入
+# FastAPI 應用
 app = FastAPI()
 
 
 @app.get("/api/auth/login")
 async def login(request: Request):
-    """重定向到 OAuth2 提供商"""
+    """重定向到 OAuth2 提供商（Azure AD / Google）"""
     redirect_uri = request.url_for('auth_callback')
     return await oauth.azure.authorize_redirect(request, redirect_uri)
 
 
 @app.get("/api/auth/callback")
 async def auth_callback(request: Request):
-    """OAuth2 回調處理"""
+    """OAuth2 回調處理 — 接收授權碼，換取 Token，創建本地 JWT"""
     token = await oauth.azure.authorize_access_token(request)
     user_info = token.get('userinfo')
 
-    # 創建 JWT
+    # 用 OAuth2 返回的用戶信息創建本地 JWT
     access_token = AuthService.create_access_token(
         user_id=user_info['sub'],
         email=user_info['email'],
-        roles=user_info.get('roles', ['user']),
-        department=user_info.get('department', 'unknown')
+        roles=user_info.get('roles', ['user']),          # 預設角色
+        department=user_info.get('department', 'unknown')  # 預設部門
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
 ```
 
+**關鍵設計決策**：
+- **JWT 包含 `roles` 和 `department`**：避免每次 API 請求都去查詢數據庫。JWT 是自包含的——伺服器只需驗證簽名，不需要回查。代價是角色變更後 Token 仍然有效直到過期（8 小時窗口可接受）。
+- **`JWT_EXPIRY_HOURS = 8` 與工作日對齊**：企業場景下，使用者一天登入一次，Token 在下班時過期。比「30 分鐘過期 + Refresh Token」更適合 Portal 場景——使用者不需要頻繁重新登入。
+- **`User.Read` 最小權限**：Azure AD 的 scope 設為 `User.Read`，只讀取用戶基本信息。不請求 `Mail.Read`、`Files.Read` 等不必要的權限——安全最佳實踐。
+- **`get_current_user` 依賴注入**：FastAPI 的 `Depends` 機制——在路由函數參數中聲明 `current_user`，框架自動完成 Token 提取、驗證、解析。減少樣板代碼。
+
 ### 10.7.2 前端認證管理
 
 ```typescript
 // frontend/lib/auth.ts
+// ================================================================
+// 前端認證管理 — 使用 Zustand 管理用戶狀態和 Token。
+// Zustand 比 Redux 輕量得多，且原生支持 TypeScript 和 SSR。
 'use client';
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';  // 自動持久化到 localStorage
 
 interface User {
   id: string;
@@ -781,6 +891,7 @@ interface AuthState {
   getToken: () => string | null;
 }
 
+// Zustand Store + persist 中間件
 export const useAuth = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -790,7 +901,7 @@ export const useAuth = create<AuthState>()(
 
       login: async () => {
         try {
-          // 重定向到 OAuth2 登入頁面
+          // 重定向到 OAuth2 登入頁面（伺服器端處理 OAuth2 流程）
           window.location.href = '/api/auth/login';
         } catch (error) {
           console.error('Login failed:', error);
@@ -799,19 +910,21 @@ export const useAuth = create<AuthState>()(
 
       logout: () => {
         set({ user: null, token: null });
-        window.location.href = '/logout';
+        window.location.href = '/logout';  // 重定向到登出頁面
       },
 
       getToken: () => get().token,
     }),
     {
-      name: 'auth-storage',
+      name: 'auth-storage',  // localStorage key
+      // 只持久化 token，不持久化 user 對象
+      // 防止用戶信息過期後仍顯示舊數據
       partialize: (state) => ({ token: state.token }),
     }
   )
 );
 
-// API 請求攔截器
+// API 請求攔截器 — 自動附加 JWT Token
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const token = useAuth.getState().getToken();
 
@@ -824,6 +937,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
     },
   });
 
+  // Token 過期 → 自動登出，跳轉登入頁
   if (response.status === 401) {
     useAuth.getState().logout();
     throw new Error('Unauthorized');
@@ -833,6 +947,11 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 }
 ```
 
+**關鍵設計決策**：
+- **`partialize: (state) => ({ token: state.token })`**：只持久化 Token，不持久化 User 對象。原因是 User 對象可能過期（如角色變更），但 Token 有 `exp` 字段可以精確過期。每次頁面加載時，用 Token 重新獲取用戶信息。
+- **`fetchWithAuth` 封裝**：所有 API 請求都通過這個函數。它自動附加 Token、自動處理 401（登出 + 跳轉）。這比每個 API 調用都手動處理 Token 更安全——不會遺忘。
+- **`window.location.href` 而非 Next.js Router**：OAuth2 登入需要完全頁面跳轉（跨域到 Azure AD / Google），不能用 SPA 路由。
+
 ---
 
 ## 10.8 RBAC 中間件
@@ -841,19 +960,23 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 
 ```python
 # portal/backend/auth/rbac.py
+# ================================================================
+# RBAC（基於角色的訪問控制）中間件 — 企業安全的核心機制。
+# 定義了五種角色和對應的權限矩陣，通過裝飾器實現 API 級別的權限控制。
+# 支持通配符匹配（如 "agent:hr:*" 匹配所有 HR Agent 操作）。
 from functools import wraps
 from fastapi import HTTPException, status
 from typing import List, Callable
 
-# 角色定義
+# 角色定義 — 五種角色覆蓋企業典型組織結構
 class Role:
-    ADMIN = "admin"
-    HR_MANAGER = "hr_manager"
-    IT_ADMIN = "it_admin"
-    USER = "user"
-    VIEWER = "viewer"
+    ADMIN = "admin"        # 平台管理員：最高權限
+    HR_MANAGER = "hr_manager"  # HR 主管：管理 HR Agent 和員工數據
+    IT_ADMIN = "it_admin"      # IT 管理員：管理 IT Agent 和基礎設施
+    USER = "user"              # 普通使用者：只能對話和建立任務
+    VIEWER = "viewer"          # 觀察者：只能讀取，不能操作
 
-# 權限矩陣
+# 權限矩陣 — 角色 → 權限列表的映射
 PERMISSIONS = {
     Role.ADMIN: [
         "agent:create", "agent:update", "agent:delete",
@@ -861,14 +984,14 @@ PERMISSIONS = {
     ],
     Role.HR_MANAGER: [
         "agent:hr:*", "user:view", "employee:manage",
-        "audit:view:hr"
+        "audit:view:hr"          # 只能看 HR 相關審計日誌
     ],
     Role.IT_ADMIN: [
         "agent:it:*", "system:monitor", "audit:view:it",
         "infrastructure:manage"
     ],
     Role.USER: [
-        "chat:create", "task:create", "task:view:own",
+        "chat:create", "task:create", "task:view:own",  # 只能看自己的任務
         "kb:read"
     ],
     Role.VIEWER: [
@@ -878,7 +1001,7 @@ PERMISSIONS = {
 
 
 def require_permission(permission: str):
-    """權限檢查裝飾器"""
+    """權限檢查裝飾器 — 用法: @require_permission("agent:create")"""
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -889,12 +1012,14 @@ def require_permission(permission: str):
                     detail="Not authenticated"
                 )
 
+            # 收集用戶所有角色的權限（一個用戶可以有多個角色）
             user_roles = user.get('roles', [])
             user_permissions = set()
             for role in user_roles:
                 user_permissions.update(PERMISSIONS.get(role, []))
 
-            # 檢查權限（支持通配符）
+            # 檢查權限 — 支持通配符匹配
+            # 例如 "agent:hr:*" 匹配 "agent:hr:create"、"agent:hr:delete" 等
             has_permission = False
             for p in user_permissions:
                 if p == permission or p.endswith('*'):
@@ -914,30 +1039,33 @@ def require_permission(permission: str):
     return decorator
 
 
-# 使用範例
+# 使用範例：裝飾器 + Depends 注入
 @app.post("/api/agents")
-@require_permission("agent:create")
+@require_permission("agent:create")  # 需要 agent:create 權限
 async def create_agent(
     agent_config: AgentConfig,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)  # 自動驗證 JWT
 ):
     """創建 Agent（需要 agent:create 權限）"""
-    # 創建邏輯
     pass
 
 
 @app.get("/api/audit/logs")
-@require_permission("audit:view")
+@require_permission("audit:view")  # 需要 audit:view 權限
 async def get_audit_logs(
     current_user: dict = Depends(get_current_user)
 ):
-    """查詢審計日誌（需要 audit:view 權限）"""
-    # 部門過濾
+    """查詢審計日誌 — 非管理員只能看自己部門的日誌"""
     if Role.ADMIN not in current_user.get('roles', []):
-        # 非管理員只能看自己部門
         return await get_logs_by_department(current_user['department'])
     return await get_all_logs()
 ```
+
+**關鍵設計決策**：
+- **通配符匹配 (`*`)**：`"agent:hr:*"` 匹配所有 HR Agent 操作。避免為每個操作定義獨立權限（如 `agent:hr:create`、`agent:hr:delete`）。減少權限維護成本。
+- **多角色合併**：一個用戶可以同時是 `HR_MANAGER` 和 `IT_ADMIN`。權限取聯集（`set.update`），不取交集。這符合企業實際——跨部門主管需要同時看到兩邊的數據。
+- **`403 Forbidden` 而非 `401 Unauthorized`**：已認證但無權限返回 403，未認證返回 401。HTTP 狀態碼的語義區分——前端可以據此決定是「跳轉登入」還是「顯示無權限頁面」。
+- **審計日誌的部門隔離**：非管理員只能看到自己部門的審計日誌。這是數據最小化原則——HR 主管不需要看到 IT Agent 的操作日誌。
 
 ---
 
@@ -947,13 +1075,17 @@ async def get_audit_logs(
 
 ```tsx
 // frontend/components/ErrorBoundary.tsx
+// ================================================================
+// 全局錯誤邊界 — React 的錯誤隔離機制。
+// 當任何子組件拋出 JavaScript 錯誤時，不會導致整個應用崩潰，
+// 而是被這個組件捕獲，顯示友好的錯誤 UI 並可重試。
 'use client';
 
 import React from 'react';
 
 interface Props {
   children: React.ReactNode;
-  fallback?: React.ReactNode;
+  fallback?: React.ReactNode;  // 自定義錯誤 UI（可選）
 }
 
 interface State {
@@ -967,14 +1099,15 @@ export class ErrorBoundary extends React.Component<Props, State> {
     this.state = { hasError: false, error: null };
   }
 
+  // 捕獲子組件渲染錯誤，更新 state 以顯示 fallback UI
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
 
+  // 錯誤上報 — 發送到監控系統（如 Sentry）
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Error caught by boundary:', error, errorInfo);
-    // 上報錯誤到監控系統
-    reportError(error, errorInfo);
+    reportError(error, errorInfo);  // 上報到監控
   }
 
   render() {
@@ -1002,11 +1135,21 @@ export class ErrorBoundary extends React.Component<Props, State> {
 }
 ```
 
+**關鍵設計決策**：
+- **Class Component 而非 Hook**：`ErrorBoundary` 必須用 Class Component。React Hooks 無法捕獲子組件的渲染錯誤——這是 React 設計限制，不是偏好。
+- **`reportError` 上報**：捕獲錯誤後自動上報到監控系統。僅在 console.log 是不夠的——生產環境需要集中收集錯誤，分析根因。
+- **「重試」按鈕**：重置 `hasError` 狀態，重新渲染子組件。很多錯誤是暫態的（如網絡波動），重試即可恢復。使用者不需要刷新整個頁面。
+
 ### 10.9.2 Agent 錯誤狀態處理
 
 ```tsx
 // frontend/components/AgentErrorState.tsx
+// ================================================================
+// Agent 錯誤狀態組件 — 根據錯誤類型顯示不同的用戶友好提示。
+// 五種錯誤類型覆蓋 AI Agent 平台的典型故障場景。
+// 每種類型都有明確的「標題 + 描述 + 建議操作」，引導使用者自行解決。
 export function AgentErrorState({ error, onRetry }: { error: AgentError; onRetry: () => void }) {
+  // 五種錯誤類型的用戶友好描述
   const errorMessages: Record<string, { title: string; description: string; action: string }> = {
     'AGENT_TIMEOUT': {
       title: 'Agent 回應超時',
@@ -1035,6 +1178,7 @@ export function AgentErrorState({ error, onRetry }: { error: AgentError; onRetry
     }
   };
 
+  // 未知錯誤的降級處理
   const errorInfo = errorMessages[error.code] || {
     title: '未知錯誤',
     description: error.message,
@@ -1050,6 +1194,7 @@ export function AgentErrorState({ error, onRetry }: { error: AgentError; onRetry
           <p className="text-sm text-red-600 mt-1">{errorInfo.description}</p>
           <p className="text-sm text-red-500 mt-2">{errorInfo.action}</p>
 
+          {/* Trace ID 供支持團隊排錯 */}
           {error.traceId && (
             <p className="text-xs text-gray-500 mt-2">
               追蹤 ID: {error.traceId}
@@ -1077,6 +1222,11 @@ export function AgentErrorState({ error, onRetry }: { error: AgentError; onRetry
 }
 ```
 
+**關鍵設計決策**：
+- **五種錯誤類型**：`AGENT_TIMEOUT`（超時）、`AGENT_UNAVAILABLE`（不可用）、`TOOL_EXECUTION_FAILED`（工具失敗）、`LLM_ERROR`（模型錯誤）、`RATE_LIMITED`（限流）。覆蓋 AI Agent 平台 90% 的故障場景。每種都有「使用者可以做什麼」的明確指引。
+- **`traceId` 透出**：使用者可以把追蹤 ID 給支持團隊，支持團隊直接在 Jaeger 看完整調用鏈。這比「請描述您的操作步驟」高效得多——一個 ID 包含了所有上下文。
+- **「重試」和「聯繫支持」雙按鈕**：提供兩個出路。大部分暫態錯誤（超時、限流）可以重試解決；持續性錯誤（工具失敗、模型錯誤）需要支持介入。讓使用者自己判斷，減少支持工單量。
+
 ---
 
 ## 10.10 對話線程管理
@@ -1085,29 +1235,33 @@ export function AgentErrorState({ error, onRetry }: { error: AgentError; onRetry
 
 ```python
 # portal/backend/conversation/thread.py
+# ================================================================
+# 對話線程管理 — 支持創建、查詢、搜索歷史對話。
+# 使用 MongoDB 儲存線程（文檔型數據庫適合存儲嵌套的 JSON 消息結構）。
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
 import uuid
 
 class ConversationThread(BaseModel):
+    """對話線程數據模型"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    title: str
+    user_id: str        # 所屬用戶（數據隔離）
+    title: str          # 線程標題（用戶可自定義）
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-    messages: List[dict] = []
-    metadata: dict = {}
+    messages: List[dict] = []    # 消息列表（JSON 嵌套）
+    metadata: dict = {}          # 擴展信息
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class ThreadManager:
-    """對話線程管理器"""
+    """對話線程管理器 — CRUD + 搜索"""
 
     def __init__(self, db):
-        self.db = db
+        self.db = db  # MongoDB 數據庫實例
 
     async def create_thread(self, user_id: str, title: str) -> ConversationThread:
         """創建新線程"""
@@ -1116,7 +1270,7 @@ class ThreadManager:
         return thread
 
     async def get_thread(self, thread_id: str) -> Optional[ConversationThread]:
-        """獲取線程"""
+        """獲取單個線程"""
         data = await self.db.threads.find_one({"id": thread_id})
         if data:
             return ConversationThread(**data)
@@ -1129,7 +1283,7 @@ class ThreadManager:
         content: str,
         metadata: dict = None
     ):
-        """添加消息到線程"""
+        """添加消息到線程 — 使用 MongoDB $push 操作原子追加"""
         message = {
             "id": str(uuid.uuid4()),
             "role": role,
@@ -1141,8 +1295,8 @@ class ThreadManager:
         await self.db.threads.update_one(
             {"id": thread_id},
             {
-                "$push": {"messages": message},
-                "$set": {"updated_at": datetime.now()}
+                "$push": {"messages": message},     # 原子追加消息
+                "$set": {"updated_at": datetime.now()}  # 更新最後修改時間
             }
         )
         return message
@@ -1150,14 +1304,14 @@ class ThreadManager:
     async def list_threads(
         self,
         user_id: str,
-        limit: int = 20,
-        offset: int = 0
+        limit: int = 20,   # 默認返回最近 20 個線程
+        offset: int = 0    # 分頁偏移量
     ) -> List[ConversationThread]:
-        """列出用戶的線程"""
+        """列出用戶的線程 — 按更新時間倒序"""
         cursor = self.db.threads.find(
-            {"user_id": user_id}
+            {"user_id": user_id}   # 按用戶過濾（數據隔離）
         ).sort(
-            "updated_at", -1
+            "updated_at", -1       # 最近更新的排前面
         ).skip(offset).limit(limit)
 
         threads = []
@@ -1170,10 +1324,10 @@ class ThreadManager:
         user_id: str,
         query: str
     ) -> List[ConversationThread]:
-        """搜索線程"""
+        """全文搜索線程 — 使用 MongoDB Atlas 全文索引"""
         cursor = self.db.threads.find({
             "user_id": user_id,
-            "$text": {"$search": query}
+            "$text": {"$search": query}  # MongoDB 全文搜索
         }).sort("updated_at", -1).limit(10)
 
         threads = []
@@ -1182,30 +1336,41 @@ class ThreadManager:
         return threads
 ```
 
+**關鍵設計決策**：
+- **MongoDB 而非 PostgreSQL**：對話線程是嵌套的 JSON 結構（線程 → 消息列表 → 元數據）。MongoDB 的文檔模型天然適合這種結構，用 PostgreSQL 的 JSONB 雖然也可以，但查詢效率和開發體驗都不如 MongoDB。
+- **`$push` 原子操作**：追加消息使用 MongoDB 的 `$push`，保證原子性。多個並發請求同時添加消息不會丟數據。
+- **`user_id` 過濾**：`list_threads` 和 `search_threads` 都帶 `user_id` 過濾。這是數據隔離——每個用戶只能看到自己的對話歷史。
+- **全文搜索用 MongoDB Atlas**：`$text: { $search: query }` 使用 MongoDB Atlas 的全文索引。比自己建 Elasticsearch 簡單得多，且對 Portal 的搜索量綽綽有餘。
+
 ### 10.10.2 前端線程 UI
 
 ```tsx
 // frontend/components/ThreadSidebar.tsx
+// ================================================================
+// 對話線程側邊欄 — 左側固定面板，展示歷史對話列表。
+// 支持搜索、選擇、新建。類似 ChatGPT 的左側面板設計。
 export function ThreadSidebar() {
   const [threads, setThreads] = useState<ConversationThread[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);  // 當前選中的線程
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    fetchThreads().then(setThreads);
+    fetchThreads().then(setThreads);  // 頁面加載時拉取所有線程
   }, []);
 
+  // 搜索或重置
   const handleSearch = async () => {
     if (searchQuery.trim()) {
-      const results = await searchThreads(searchQuery);
+      const results = await searchThreads(searchQuery);  // 調用後端搜索 API
       setThreads(results);
     } else {
-      fetchThreads().then(setThreads);
+      fetchThreads().then(setThreads);  // 搜索框清空時恢復完整列表
     }
   };
 
   return (
     <div className="w-64 border-r h-full flex flex-col">
+      {/* 搜索框 */}
       <div className="p-4 border-b">
         <input
           type="text"
@@ -1217,13 +1382,16 @@ export function ThreadSidebar() {
         />
       </div>
 
+      {/* 線程列表 — 固定寬度 264px，可滾動 */}
       <div className="flex-1 overflow-y-auto">
         {threads.map(thread => (
           <div
             key={thread.id}
             onClick={() => setSelectedId(thread.id)}
             className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${
-              selectedId === thread.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+              selectedId === thread.id
+                ? 'bg-blue-50 border-l-4 border-l-blue-500'  // 選中狀態：藍色左邊框
+                : ''
             }`}
           >
             <h4 className="font-medium text-sm truncate">{thread.title}</h4>
@@ -1234,6 +1402,7 @@ export function ThreadSidebar() {
         ))}
       </div>
 
+      {/* 新建對話按鈕 — 固定在底部 */}
       <div className="p-4 border-t">
         <button
           onClick={() => createNewThread()}
@@ -1246,6 +1415,12 @@ export function ThreadSidebar() {
   );
 }
 ```
+
+**關鍵設計決策**：
+- **`w-64` 固定寬度**：側邊欄寬度固定 264px。不隨內容自適應——避免用戶切換線程時側邊欄跳動。
+- **`border-l-4 border-l-blue-500` 選中指示**：選中的線程左側加 4px 藍色邊框。比背景色高亮更明顯，且不影響文字可讀性。這是「側邊欄選中狀態」的常見模式。
+- **`truncate` 防溢出**：線程標題過長時自動截斷。側邊欄寬度有限，不能讓長標題把佈局撐開。
+- **新建按鈕固定底部**：`flex-col` + 底部 `border-t` 確保「新對話」按鈕始終可見，不管有多少歷史線程。
 
 ---
 
