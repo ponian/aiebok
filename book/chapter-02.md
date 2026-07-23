@@ -259,13 +259,13 @@ CCA 是整個平台最關鍵的組件，也是實現「AI Native」願景的核�
 graph TB
     subgraph CCA["🧠 Central Coordinator Agent"]
         direction TB
-        NLU[1. 用戶意圖理解<br/>NLU & Context Awareness]
-        Planner[2. 任務分解<br/>Task Decomposition]
-        Orchestrator[3. Agent 調度與編排<br/>Agent Dispatch & Orchestration]
-        MCPClient[4. MCP 通信管理<br/>Context Exchange]
-        Integrator[5. 結果整合與反饋<br/>Result Integration]
-        StateMgr[6. 狀態管理與錯誤處理<br/>State & Error Handling]
-        Audit[7. 審計與合規<br/>Audit & Compliance]
+        NLU["1️⃣ 用戶意圖理解<br/>NLU"]
+        Planner["2️⃣ 任務分解<br/>Task Decomposition"]
+        Orchestrator["3️⃣ Agent 調度<br/>Dispatch & Orchestration"]
+        MCPClient["4️⃣ MCP 通信<br/>Context Exchange"]
+        Integrator["5️⃣ 結果整合<br/>Result Integration"]
+        StateMgr["6️⃣ 狀態管理<br/>State & Error Handling"]
+        Audit["7️⃣ 審計合規<br/>Audit & Compliance"]
 
         NLU --> Planner
         Planner --> Orchestrator
@@ -275,8 +275,8 @@ graph TB
         StateMgr --> Audit
     end
 
-    UserRequest[用戶請求] --> NLU
-    Audit --> UserResponse[用戶響應]
+    UserRequest["用戶請求"] --> NLU
+    Audit --> UserResponse["用戶響應"]
 ```
 
 **（1）用戶請求解析與意圖識別**
