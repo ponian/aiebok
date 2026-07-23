@@ -33,7 +33,7 @@ Each chapter follows this pattern:
 | 07 | MCP | Protobuf, gRPC, message queues |
 | 08 | Deployment | Helm, Istio traffic management, CI/CD |
 | 09 | Observability | OTel instrumentation, traces, metrics, logs |
-| 10 | Portal | Next.js 14 frontend, FastAPI backend, user management, RBAC |
+| 10 | Portal | Next.js 16 frontend, FastAPI backend, user management, RBAC |
 | 11 | Roadmap | MVP → Production → Scale phases |
 | 12 | Reference Impl | Complete code for IT account creation scenario |
 
@@ -61,7 +61,7 @@ The MVP demonstrates:
 - CCA + IT Agent + HR Agent coordination
 - MCP-based communication
 - OpenTelemetry observability
-- Next.js 14 + FastAPI portal interface
+- Next.js 16 + FastAPI portal interface
 - Docker Compose for local development
 
 Project structure follows `ai-agent-platform/` convention.
