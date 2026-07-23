@@ -704,12 +704,81 @@ sequenceDiagram
 | **Agent → MCP Service（工具註冊）** | 同步 HTTP | 啟動時一次性註冊 |
 | **MCP Service → Agent（心跳/健康檢查）** | 異步定期輪詢 | 監控 Agent 可用性 |
 
+**與 Google A2A Protocol 的整合**：
+
+本平台的 A2A 模式可與 Google A2A 協議（Agent2Agent Protocol）整合，實現跨平台 Agent 互操作。Google A2A 是一個開放標準，定義了 Agent 之間的發現、通信與任務管理規範，目前已由 Linux Foundation 維護，擁有 150+ 組織支持（包括 Google、Microsoft、IBM、Salesforce 等）。
+
+| 整合面向 | 本平台 A2A 模式 | Google A2A Protocol |
+|---------|----------------|---------------------|
+| **Agent 發現** | Agent Registry（內部） | AgentCard（`.well-known/agent-card.json`） |
+| **通信協議** | MCP + NATS | JSON-RPC 2.0 / gRPC |
+| **任務管理** | CCA 調度 + NATS 任務隊列 | Task Lifecycle（submitted → working → completed） |
+| **適用場景** | 平台內部 Agent 協作 | 跨平台、跨組織 Agent 互操作 |
+
+> **設計建議**：平台內部通信使用本章定義的 A2A 模式（§2.5.2），若需與外部 Agent 系統（如合作夥伴的 Agent 服務）互操作，則可通過 A2A 適配層轉換為 Google A2A 協議格式。詳見 §2.5.5。
+
 **設計原則**：
 
 1. **默認同步**：除非有明確的異步需求，否則使用同步 RPC。同步模型更容易推理和調試。
 2. **異步需明確標記**：異步任務必須返回 `task_id`，並支持狀態查詢（`GET /tasks/{id}`）。
 3. **事件需幂等**：Pub/Sub 事件的消費者必須實現幂等處理，因為 NATS 可能投遞重複消息。
 4. **所有通信經過 MCP Service**：即使 Agent 之間直接通信，也必須通過 MCP Service 路由，以確保可觀察性。
+
+### 2.5.5 Google A2A Protocol 簡介
+
+Google A2A Protocol（Agent2Agent Protocol）是一個開放標準，由 Google於 2025 年 4 月 發起，目前已捐贈給 Linux Foundation 維護。該協議定義了異構 Agent 系統之間的通信規範，解決跨平台、跨組織的 Agent 互操作問題。
+
+**核心概念**：
+
+| 概念 | 說明 |
+|------|------|
+| **AgentCard** | Agent 的能力描述文件，托管於 `/.well-known/agent-card.json`，包含名稱、能力、安全要求等 |
+| **Task** | 任務的生命週期管理（submitted → working → input-required → completed / failed / canceled） |
+| **Message** | Agent 之間的通信單元，包含多個 Part（文本、文件、結構化數據） |
+| **Artifact** | 任務的輸出結果，如生成的文件、數據等 |
+
+**與 MCP 的關係**：
+
+```
+┌─────────────────────────────────────────────────────┐
+│               Google A2A Protocol                    │
+│   AgentCard Discovery │ Task Lifecycle │ Messaging   │
+├─────────────────────────────────────────────────────┤
+│               MCP Protocol                           │
+│   Tool Discovery │ Context Exchange │ Tool Calling   │
+├─────────────────────────────────────────────────────┤
+│               傳輸層                                  │
+│   HTTP/JSON-RPC │ gRPC │ WebSocket                  │
+└─────────────────────────────────────────────────────┘
+```
+
+- **MCP**：定義 Agent 如何**使用工具**（Tool Discovery、Tool Calling）
+- **A2A**：定義 Agent 之間**如何協作**（Discovery、Task Management、Messaging）
+
+**技術規範**：
+
+| 項目 | 規格 |
+|------|------|
+| **協議版本** | v1.0（2026 年 4 月發布） |
+| **序列化** | JSON-RPC 2.0 / Protocol Buffers |
+| **傳輸層** | HTTP + JSON 或 gRPC |
+| **發現機制** | AgentCard（REST）或 Signed AgentCard（安全擴展） |
+| **授權** | OAuth 2.0、API Key、OpenID Connect |
+| **SDK** | Python、TypeScript、Java、.NET、Go |
+
+**適用場景**：
+
+| 場景 | 使用本平台 A2A | 使用 Google A2A |
+|------|---------------|-----------------|
+| 平台內部 Agent 協作 | ✅ | ❌ |
+| 與合作夥伴 Agent 互操作 | ❌ | ✅ |
+| 跨組織 Agent 委託 | ❌ | ✅ |
+| 混合雲 Agent 部署 | 視情況 | ✅ |
+
+> **參考資源**：
+> - 官方規範：https://a2a-protocol.org
+> - GitHub：https://github.com/a2aproject/A2A
+> - 規範文件：`specification/a2a.proto`
 
 ---
 
