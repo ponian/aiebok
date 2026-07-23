@@ -25,30 +25,39 @@
 以下是 AI Native Agent Platform 的宏觀架構圖，展示了所有核心組件及其關係：
 
 ```mermaid
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#E8F5E9",
+    "primaryTextColor": "#1B5E20",
+    "lineColor": "#666666",
+    "fontSize": "14px"
+  }
+}}%%
 graph TD
     User[👤 End User] --> Portal[🖥️ Portal Platform]
-    Portal -->|REST/WebSocket| CCA[🧠 Central Coordinator Agent]
+    Portal -->|"REST / WebSocket"| CCA[🧠 Central Coordinator Agent]
 
-    CCA -->|gRPC/MCP| MCPSvc[(📡 MCP Service)]
-    CCA -->|查詢可用 Agent| AgentReg[📋 Agent Registry]
-    CCA -->|工作流編排| LangGraph[⚙️ LangGraph Orchestrator]
+    CCA -->|"gRPC / MCP"| MCPSvc[(📡 MCP Service)]
+    CCA -->|"工作流編排"| LangGraph[⚙️ LangGraph Orchestrator]
+    CCA -->|"查詢可用 Agent"| AgentReg[📋 Agent Registry]
 
-    AgentReg -->|註冊/發現| HRAgent[👥 HR Agent]
-    AgentReg -->|註冊/發現| ITAgent[💻 IT Agent]
-    AgentReg -->|註冊/發現| FinAgent[💰 Finance Agent]
+    AgentReg -->|"註冊"| HRAgent[👥 HR Agent]
+    AgentReg -->|"發現"| ITAgent[💻 IT Agent]
+    AgentReg -->|"發現"| FinAgent[💰 Finance Agent]
 
-    LangGraph -->|調度| HRAgent
-    LangGraph -->|調度| ITAgent
-    LangGraph -->|調度| FinAgent
+    LangGraph -->|"調度"| HRAgent
+    LangGraph -->|"調度"| ITAgent
+    LangGraph -->|"調度"| FinAgent
 
-    MCPSvc -->|上下文傳遞| HRAgent
-    MCPSvc -->|上下文傳遞| ITAgent
-    MCPSvc -->|上下文傳遞| FinAgent
+    MCPSvc -->|"上下文傳遞"| HRAgent
+    MCPSvc -->|"上下文傳遞"| ITAgent
+    MCPSvc -->|"上下文傳遞"| FinAgent
 
-    HRAgent -->|讀寫| DataLayer[(🗄️ Data & Knowledge Layer)]
-    ITAgent -->|讀寫| DataLayer
-    FinAgent -->|讀寫| DataLayer
-    CCA -->|讀寫| DataLayer
+    HRAgent -->|"讀寫"| DataLayer[(🗄️ Data & Knowledge Layer)]
+    ITAgent -->|"讀寫"| DataLayer
+    FinAgent -->|"讀寫"| DataLayer
+    CCA -->|"讀寫"| DataLayer
 
     subgraph PlatformCore["🏛️ Platform Core"]
         CCA
@@ -72,25 +81,75 @@ graph TD
         CloudNative[☁️ Cloud-Native Foundation]
     end
 
-    Portal -.->|部署於| CloudNative
-    CCA -.->|部署於| CloudNative
-    MCPSvc -.->|部署於| CloudNative
-    HRAgent -.->|部署於| CloudNative
-    ITAgent -.->|部署於| CloudNative
-    FinAgent -.->|部署於| CloudNative
+    Portal -. "部署於" .-> CloudNative
+    CCA -. "部署於" .-> CloudNative
+    MCPSvc -. "部署於" .-> CloudNative
+    HRAgent -. "部署於" .-> CloudNative
+    ITAgent -. "部署於" .-> CloudNative
+    FinAgent -. "部署於" .-> CloudNative
 
-    Letta[🔧 Letta Agent Framework] -.->|開發框架| CCA
-    Letta -.->|開發框架| HRAgent
-    Letta -.->|開發框架| ITAgent
-    Letta -.->|開發框架| FinAgent
+    Letta[🔧 Letta Agent Framework] -. "開發框架" .-> CCA
+    Letta -. "開發框架" .-> HRAgent
+    Letta -. "開發框架" .-> ITAgent
+    Letta -. "開發框架" .-> FinAgent
 
-    OTel[📊 OpenTelemetry] -->|導出| Monitoring[📈 Monitoring Backend<br/>Prometheus + Grafana + Loki + Jaeger]
-    CCA -.->|遙測數據| OTel
-    HRAgent -.->|遙測數據| OTel
-    ITAgent -.->|遙測數據| OTel
-    FinAgent -.->|遙測數據| OTel
-    MCPSvc -.->|遙測數據| OTel
-    Portal -.->|遙測數據| OTel
+    OTel[📊 OpenTelemetry] -->|"導出"| Monitoring[📈 Monitoring Backend<br/>Prometheus + Grafana + Loki + Jaeger]
+    CCA -. "遙測數據" .-> OTel
+    HRAgent -. "遙測數據" .-> OTel
+    ITAgent -. "遙測數據" .-> OTel
+    FinAgent -. "遙測數據" .-> OTel
+    MCPSvc -. "遙測數據" .-> OTel
+    Portal -. "遙測數據" .-> OTel
+
+    %% 關係線條樣式：顏色對應圖例
+    style Portal fill:#E3F2FD,stroke:#1565C0,stroke-width:2px
+    style CCA fill:#FFF3E0,stroke:#E65100,stroke-width:2px
+    style MCPSvc fill:#E8EAF6,stroke:#283593,stroke-width:2px
+    style AgentReg fill:#E0F7FA,stroke:#00695C,stroke-width:2px
+    style LangGraph fill:#FCE4EC,stroke:#AD1457,stroke-width:2px
+    style HRAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px
+    style ITAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px
+    style FinAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px
+    style DataLayer fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px
+    style CloudNative fill:#ECEFF1,stroke:#37474F,stroke-width:2px
+    style Letta fill:#FFF8E1,stroke:#F57F17,stroke-width:2px
+    style OTel fill:#FBE9E7,stroke:#BF360C,stroke-width:2px
+    style Monitoring fill:#E0F2F1,stroke:#004D40,stroke-width:2px
+    style User fill:#FAFAFA,stroke:#424242,stroke-width:1px
+
+    %% 邊樣式定義：依圖例顏色
+    linkStyle 0 stroke:#1565C0,stroke-width:2px,fill:none
+    linkStyle 1 stroke:#2E7D32,stroke-width:2px,fill:none
+    linkStyle 2 stroke:#AD1457,stroke-width:2px,fill:none
+    linkStyle 3 stroke:#00695C,stroke-width:2px,fill:none,stroke-dasharray:5,5
+    linkStyle 4 stroke:#00695C,stroke-width:2px,fill:none,stroke-dasharray:5,5
+    linkStyle 5 stroke:#00695C,stroke-width:2px,fill:none,stroke-dasharray:5,5
+    linkStyle 6 stroke:#6A1B9A,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 7 stroke:#6A1B9A,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 8 stroke:#6A1B9A,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 9 stroke:#E65100,stroke-width:2px,fill:none
+    linkStyle 10 stroke:#E65100,stroke-width:2px,fill:none
+    linkStyle 11 stroke:#E65100,stroke-width:2px,fill:none
+    linkStyle 12 stroke:#283593,stroke-width:2px,fill:none
+    linkStyle 13 stroke:#283593,stroke-width:2px,fill:none
+    linkStyle 14 stroke:#283593,stroke-width:2px,fill:none
+    linkStyle 15 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 16 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 17 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 18 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 19 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 20 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 21 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 22 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 23 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 24 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 25 stroke:#BF360C,stroke-width:2px,fill:none
+    linkStyle 26 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 27 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 28 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 29 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 30 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 31 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
 ```
 
 ### 2.1.3 架構圖解讀
