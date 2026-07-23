@@ -775,29 +775,86 @@ async def subscribe_task_events(nc):
 
 ---
 
-## 4.5 開源工具棧總覽與選型理由
+## 4.5 etcd：分佈式服務發現與配置存儲
 
-### 4.5.1 完整技術棧
+### 4.5.1 為什麼需要 etcd
 
-| 層級 | 技術 | 版本 | GitHub | 用途 | 授權 | 為什麼選擇 |
-|------|------|------|--------|------|------|-----------|
-| **Agent 框架** | Letta | v0.16.8 | [letta-ai/letta](https://github.com/letta-ai/letta) | Agent 定義與生命週期 | Apache 2.0 | 狀態持久化，記憶管理，社區活躍 |
-| **工作流編排** | LangGraph | v1.2.9 | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) | Agent 工作流狀態機 | MIT | LangChain 生態，狀態機模型直觀 |
-| **LLM 推理** | Ollama | v0.32.2 | [ollama/ollama](https://github.com/ollama/ollama) | 本地 LLM 運行 | MIT | 零成本，數據隱私，快速迭代 |
-| **通信協議** | gRPC + Protobuf | v1.82.1 | [grpc/grpc](https://github.com/grpc/grpc) | MCP 服務實現 | Apache 2.0 | 高性能，類型安全，跨語言 |
-| **消息隊列** | NATS | v2.14.3 | [nats-io/nats-server](https://github.com/nats-io/nats-server) | 異步消息傳遞 | Apache 2.0 | 輕量，高吞吐，雲原生 |
-| **容器編排** | Kubernetes | v1.36.2 | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) | 部署與資源管理 | Apache 2.0 | 行業標準，功能最全面 |
-| **服務網格** | Istio | v1.30.3 | [istio/istio](https://github.com/istio/istio) | 服務間安全與流量管理 | Apache 2.0 | 企業級 mTLS，流量控制 |
-| **遙測標準** | OpenTelemetry | v0.156.0 | [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-collector) | Trace/Metrics/Logs | Apache 2.0 | CNCF 標準，廠商無關 |
-| **指標監控** | Prometheus | v3.4.2 | [prometheus/prometheus](https://github.com/prometheus/prometheus) | 指標存儲與告警 | Apache 2.0 | 雲原生監控標準 |
-| **可視化** | Grafana | v13.1.0 | [grafana/grafana](https://github.com/grafana/grafana) | 儀表板與可視化 | AGPL | 功能強大，插件豐富 |
-| **日誌聚合** | Loki | v3.7.2 | [grafana/loki](https://github.com/grafana/loki) | 日誌存儲與查詢 | AGPL | 與 Grafana 深度集成，成本低 |
-| **分散式追蹤** | Jaeger | v2.20.0 | [jaegertracing/jaeger](https://github.com/jaegertracing/jaeger) | Trace 存儲與分析 | Apache 2.0 | CNCF 項目，Uber 開源 |
-| **Portal Frontend** | Next.js 16 + shadcn/ui | v16.2.10 / v4.13.0 | [vercel/next.js](https://github.com/vercel/next.js) / [shadcn-ui/ui](https://github.com/shadcn-ui/ui) | 現代化 React 框架，SSR/SSG | MIT | 生態豐富，性能優異 |
-| **Portal Backend** | FastAPI | v0.139.2 | [fastapi/fastapi](https://github.com/fastapi/fastapi) | 異步 Python Web 框架 | MIT | 與 Python Agent 無縫集成 |
-| **向量數據庫** | ChromaDB | v1.5.9 | [chroma-core/chroma](https://github.com/chroma-core/chroma) | RAG 向量存儲 | Apache 2.0 | 輕量級，易於嵌入 |
+在 §2.3.4 的 Agent Registry 實現中，我們使用了 etcd 作為後端存儲。etcd 是一個分佈式、強一致性的 key-value 存儲系統，也是 Kubernetes 的底層數據庫——K8s 的所有資源狀態（Pod、Service、ConfigMap 等）都持久化在 etcd 中。對於 Agent Platform，etcd 承擔兩個關鍵角色：
 
-### 4.5.2 免費雲端替代方案
+| 角色 | 說明 | 在平台中的體現 |
+|------|------|---------------|
+| **Agent Registry 後端** | 存儲 Agent 的註冊信息、能力描述、健康狀態 | §2.3.4 的 `AgentRegistry` 類基於 etcd 實現服務發現 |
+| **K8s 控制平面存儲** | K8s 所有資源的 single source of truth | 所有 Deployment、Service、ConfigMap 等 K8s 物件的實際狀態都存在 etcd 中 |
+
+### 4.5.2 etcd 的核心能力與 Agent Platform 的對應
+
+| etcd 能力 | 技術實現 | 平台如何受益 |
+|-----------|---------|-------------|
+| **強一致性（Raft 協議）** | 所有寫入經 Raft 共識後才確認 | CCA 在任何 K8s 節點查詢 Agent Registry，結果一致——不會出現「A 節點看到 Agent 在線，B 節點看不到」的分裂問題 |
+| **Watch 機制** | 支持對 key prefix 的變更進行即時推送 | Agent 上線時 register() 寫入 etcd → CCA 通過 Watch 即時感知新 Agent，無需輪詢。相比 NATS 的 pub/sub，etcd Watch 更適合「狀態變化」而非「事件流」 |
+| **TTL / Lease** | 為 key 綁定租約，過期自動刪除 | Agent 崩潰後心跳停止 → Lease 過期 → 註冊信息自動清除 → CCA 不再分派任務給已死亡的 Agent。無需手動清理，也無需自建定時器 |
+| **分佈式鎖（CAS）** | 基於 revision 的 Compare-And-Swap 操作 | 防止多個 Agent 實例同時註冊同一 `agent_id` 時的競態條件——只有一個實例能成功寫入 |
+
+### 4.5.3 etcd vs 其他選擇：為什麼不用 Redis 或 Consul？
+
+| 方案 | 強一致性 | Watch 機制 | TTL | K8s 生態整合 | 選擇理由 |
+|------|---------|-----------|-----|-------------|---------|
+| **etcd** | ✅ Raft 協議 | ✅ 原生支持 | ✅ Lease | ✅ K8s 控制平面本身就是 etcd | 不引入額外依賴——K8s 集群已有 etcd，直接複用 |
+| **Redis** | ❌ 非強一致（異步複製） | ✅ Keyspace Notification | ✅ 原生支持 | ❌ 需額外部署 | 速度快但一致性不夠，Agent 註冊信息不能丢 |
+| **Consul** | ✅ Raft 協議 | ✅ 原生支持 | ✅ TTL | ❌ 需額外部署 | 功能完整但引入新依賴，與 K8s 生態重疊 |
+
+**選擇邏輯**：K8s 集群已經運行 etcd 作為控制平面的數據庫。Agent Registry 複用同一個 etcd 集群（使用不同的 key prefix `/ai-platform/agents/`），不需要額外部署和運維。這符合「不引入不必要的新依賴」原則。
+
+> **關鍵區分：etcd 負責「狀態」，NATS 負責「事件」。** Agent 的註冊信息（能力、端點、健康狀態）是持久化的狀態，適合存在 etcd 中；Agent 間的通信消息（任務分配、結果回傳）是瞬時的事件流，適合通過 NATS 傳遞。兩者互補，不衝突。
+
+### 4.5.4 在 Agent Platform 中的運作流程
+
+```
+Agent 啟動 → register() 寫入 etcd（key: /ai-platform/agents/{agent_id}）
+                ↓
+CCA 通過 etcd Watch 即時感知新 Agent 上線
+                ↓
+CCA discover() 查詢 etcd → 返回具備目標能力的健康 Agent 列表
+                ↓
+Agent 運行 → 定期 heartbeat() 更新 etcd 中的 last_heartbeat 和 status
+                ↓
+Agent 崩潰 → 心跳停止 → etcd Lease 過期 → 自動刪除註冊信息 → CCA 不再分派任務
+```
+
+> **注意**：上述流程的代碼實現詳見 §2.3.4（`AgentRegistry` 類）。本節聚焦於 etcd 的選型理由和架構定位，而非代碼細節。
+
+### 4.5.5 推薦學習資源
+
+1. **《etcd in Action》** — etcd 官方推薦的入門教材。
+2. **etcd 官方文檔** — https://etcd.io/docs/ — API 參考、運維指南。
+3. **《Programming etcd》** — 深入理解 Raft 協議和 etcd 內部機制。
+
+---
+
+## 4.6 開源工具棧總覽與選型理由
+
+### 4.6.1 完整技術棧
+
+| 層級 | 技術 | GitHub | 用途 | 授權 | 為什麼選擇 |
+|------|------|--------|------|------|-----------|
+| **Agent 框架** | Letta | [letta-ai/letta](https://github.com/letta-ai/letta) | Agent 定義與生命週期 | Apache 2.0 | 狀態持久化，記憶管理，社區活躍 |
+| **工作流編排** | LangGraph | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) | Agent 工作流狀態機 | MIT | LangChain 生態，狀態機模型直觀 |
+| **LLM 推理** | Ollama | [ollama/ollama](https://github.com/ollama/ollama) | 本地 LLM 運行 | MIT | 零成本，數據隱私，快速迭代 |
+| **通信協議** | gRPC + Protobuf | [grpc/grpc](https://github.com/grpc/grpc) | MCP 服務實現 | Apache 2.0 | 高性能，類型安全，跨語言 |
+| **消息隊列** | NATS | [nats-io/nats-server](https://github.com/nats-io/nats-server) | 異步消息傳遞 | Apache 2.0 | 輕量，高吞吐，雲原生 |
+| **服務發現** | etcd | [etcd-io/etcd](https://github.com/etcd-io/etcd) | Agent Registry 後端、K8s 控制平面存儲 | Apache 2.0 | 強一致性（Raft）、Watch 機制、K8s 原生依賴 |
+| **容器編排** | Kubernetes | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) | 部署與資源管理 | Apache 2.0 | 行業標準，功能最全面 |
+| **服務網格** | Istio | [istio/istio](https://github.com/istio/istio) | 服務間安全與流量管理 | Apache 2.0 | 企業級 mTLS，流量控制 |
+| **遙測標準** | OpenTelemetry | [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-collector) | Trace/Metrics/Logs | Apache 2.0 | CNCF 標準，廠商無關 |
+| **指標監控** | Prometheus | [prometheus/prometheus](https://github.com/prometheus/prometheus) | 指標存儲與告警 | Apache 2.0 | 雲原生監控標準 |
+| **可視化** | Grafana | [grafana/grafana](https://github.com/grafana/grafana) | 儀表板與可視化 | AGPL | 功能強大，插件豐富 |
+| **日誌聚合** | Loki | [grafana/loki](https://github.com/grafana/loki) | 日誌存儲與查詢 | AGPL | 與 Grafana 深度集成，成本低 |
+| **分散式追蹤** | Jaeger | [jaegertracing/jaeger](https://github.com/jaegertracing/jaeger) | Trace 存儲與分析 | Apache 2.0 | CNCF 項目，Uber 開源 |
+| **Portal Frontend** | Next.js 16 + shadcn/ui | [vercel/next.js](https://github.com/vercel/next.js) / [shadcn-ui/ui](https://github.com/shadcn-ui/ui) | 現代化 React 框架，SSR/SSG | MIT | 生態豐富，性能優異 |
+| **Portal Backend** | FastAPI | [fastapi/fastapi](https://github.com/fastapi/fastapi) | 異步 Python Web 框架 | MIT | 與 Python Agent 無縫集成 |
+| **向量數據庫** | ChromaDB | [chroma-core/chroma](https://github.com/chroma-core/chroma) | RAG 向量存儲 | Apache 2.0 | 輕量級，易於嵌入 |
+
+### 4.6.2 免費雲端替代方案
 
 對於沒有本地 Kubernetes 集群的團隊，以下免費雲端方案可用於學習與 POC：
 
@@ -809,7 +866,7 @@ async def subscribe_task_events(nc):
 | **Civo** | $250 試用金 | K3s 託管集群 |
 | **本地方案** | Minikube / Kind / k3d | 開發與測試 |
 
-### 4.5.3 決策矩陣
+### 4.6.3 決策矩陣
 
 在面對技術選型時，我們建議使用以下決策矩陣：
 
@@ -825,13 +882,13 @@ async def subscribe_task_events(nc):
 
 ---
 
-## 4.6 Helm Charts：Kubernetes 應用打包
+## 4.7 Helm Charts：Kubernetes 應用打包
 
-### 4.6.1 為什麼需要 Helm
+### 4.7.1 為什麼需要 Helm
 
 直接管理多個 Kubernetes YAML 文件（Deployment、Service、ConfigMap、HPA 等）在組件增多時變得不可維護。Helm 是 K8s 的「包管理器」，將相關的 K8s 資源打包為一個可安裝、可升級、可回滾的 Chart。
 
-### 4.6.2 Agent Platform 的 Helm Chart 結構
+### 4.7.2 Agent Platform 的 Helm Chart 結構
 
 ```
 ai-platform-chart/
@@ -860,7 +917,7 @@ ai-platform-chart/
 │   └── _helpers.tpl        # 模板輔助函數
 ```
 
-### 4.6.3 Helm Values 示例
+### 4.7.3 Helm Values 示例
 
 **values.yaml** 是 Helm Chart 的「默認配置文件」— 定義了所有可配置的參數及其預設值。每個組件（cca、hrAgent、mcpService）都有獨立的配置區塊。`helm install` 時可以通過 `-f` 參數指定覆蓋文件，實現多環境差異化部署。
 
@@ -931,9 +988,9 @@ helm upgrade ai-platform ./ai-platform-chart -f values-prod.yaml
 
 ---
 
-## 4.7 CI/CD Pipeline 基礎
+## 4.8 CI/CD Pipeline 基礎
 
-### 4.7.1 Agent 的持續交付流程
+### 4.8.1 Agent 的持續交付流程
 
 Agent 的 CI/CD 與傳統微服務有顯著差異 — 除了代碼測試，還需要驗證 Agent 的「行為質量」：
 
@@ -984,7 +1041,7 @@ graph LR
 
 質量門檻是 CI/CD 中的「守門員」。它解決了一個 Agent 特有的問題：**模型更新可能導致行為退化**。當你更新 LLM 模型或修改 Prompt 時，Agent 在某些場景下的表現可能變好，但在另一些場景下可能變差。質量門檻通過自動化的全場景評估，確保整體質量只升不降。
 
-### 4.7.2 Agent 行為測試
+### 4.8.2 Agent 行為測試
 
 傳統的單元測試驗證「函數輸入 → 輸出」是否正確，但 Agent 是非確定性的 — 相同輸入可能產生不同的推理路徑。因此我們需要**行為測試（Behavioral Testing）**：驗證 Agent 在特定場景下是否做出「正確的行為選擇」，而不是驗證具體輸出文本。
 
@@ -1042,7 +1099,7 @@ async def test_agent_rejects_unauthorized_action(it_agent):
 - **正向 + 負向測試**：正向測試確保 Agent 能正確完成任務，負向測試確保 Agent 不會執行越權操作。兩者缺一不可 — 只做正向測試可能漏掉安全漏洞。
 - **fixture 隔離**：`it_agent` fixture 確保每個測試使用獨立的 Agent 實例，避免測試間的狀態污染。
 
-### 4.7.3 推薦學習資源
+### 4.8.3 推薦學習資源
 
 1. **《Continuous Delivery》** — Jez Humble & David Farley. 持續交付的經典著作。
 2. **ArgoCD Documentation** — https://argo-cd.readthedocs.io/ — K8s GitOps 持續部署工具。
@@ -1058,9 +1115,10 @@ async def test_agent_rejects_unauthorized_action(it_agent):
 - **Istio**：服務網格，將 mTLS、流量管理、熔斷等橫切關注點從應用代碼剝離到基礎設施層。
 - **OpenTelemetry**：統一的遙測標準，實現 Trace/Metrics/Logs 的統一採集與關聯，是平台可觀察性的基石。
 - **NATS**：輕量級高性能消息隊列，支持事件廣播、流量削峰、Agent 間異步通信。
+- **etcd**：分佈式強一致性 key-value 存儲，作為 Agent Registry 的後端實現服務發現，同時也是 Kubernetes 控制平面的底層數據庫——複用已有依賴，不引入新組件。
 - **Helm Charts**：K8s 應用打包工具，將多個 K8s 資源統一管理，支持多環境配置與版本化部署。
 - **CI/CD Pipeline**：Agent 的持續交付不僅包含代碼測試，還包含 Agent 行為測試與質量評估。
-- **完整技術棧**：16 個核心技術，全部為 MIT 或 Apache 2.0 授權的開源項目，無授權風險。
+- **完整技術棧**：17 個核心技術，全部為 MIT 或 Apache 2.0 授權的開源項目，無授權風險。
 - **免費雲端方案**：Oracle Cloud Free Tier、Google Cloud Free Tier 等可用於學習與 POC。
 
 至此，我們完成了階段一（藍圖構建）的全部內容。從下一章開始，我們將進入階段二（細節深耕），逐一深入每個組件的實現細節 — 從 CCA 的 LLM Prompt 設計開始。
@@ -1088,8 +1146,9 @@ async def test_agent_rejects_unauthorized_action(it_agent):
 
 ### 消息隊列與打包
 10. **NATS 官方文檔** — https://docs.nats.io/ — NATS 核心概念與 JetStream。
-11. **《Helm Best Practices》** — Helm 官方文檔 — https://helm.sh/docs/chart_best_practices/ — Helm Chart 設計最佳實踐。
+11. **etcd 官方文檔** — https://etcd.io/docs/ — etcd API 參考與運維指南。
+12. **《Helm Best Practices》** — Helm 官方文檔 — https://helm.sh/docs/chart_best_practices/ — Helm Chart 設計最佳實踐。
 
 ### CI/CD
-12. **《Continuous Delivery》** — Jez Humble & David Farley. 持續交付的經典著作。
-13. **ArgoCD Documentation** — https://argo-cd.readthedocs.io/ — K8s GitOps 持續部署。
+13. **《Continuous Delivery》** — Jez Humble & David Farley. 持續交付的經典著作。
+14. **ArgoCD Documentation** — https://argo-cd.readthedocs.io/ — K8s GitOps 持續部署。
