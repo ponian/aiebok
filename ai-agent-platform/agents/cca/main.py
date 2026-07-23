@@ -1,4 +1,5 @@
 """CCA Agent — Core Control Agent for Orchestration"""
+import asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
 import httpx
@@ -45,14 +46,18 @@ async def submit_task(request: TaskRequest):
         "result": None,
     }
 
-    # Process asynchronously (in production, use background task)
+    # Fire-and-forget: process in background so endpoint returns immediately
+    asyncio.create_task(_run_task(task_id, request.content))
+
+    return {"task_id": task_id, "status": "accepted"}
+
+
+async def _run_task(task_id: str, content: str):
     try:
-        await process_task(task_id, request.content)
+        await process_task(task_id, content)
     except Exception as e:
         tasks[task_id]["status"] = "failed"
         tasks[task_id]["result"] = str(e)
-
-    return {"task_id": task_id, "status": "accepted"}
 
 
 @app.get("/task/{task_id}")

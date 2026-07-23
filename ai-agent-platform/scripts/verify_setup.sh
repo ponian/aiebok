@@ -19,12 +19,13 @@ for line in sys.stdin:
 echo ""
 echo "2. 測試 API 端點..."
 endpoints=(
-    "MCP Service|http://localhost:8083/healthz"
-    "CCA Agent|http://localhost:8084/healthz"
-    "IT Agent|http://localhost:8082/healthz"
-    "HR Agent|http://localhost:8081/healthz"
-    "Mock AD API|http://localhost:8090/healthz"
-    "Mock HR API|http://localhost:8091/healthz"
+    "MCP Service|http://localhost:9109/healthz"
+    "CCA Agent|http://localhost:9112/healthz"
+    "IT Agent|http://localhost:9111/healthz"
+    "HR Agent|http://localhost:9110/healthz"
+    "Mock AD API|http://localhost:9107/healthz"
+    "Mock HR API|http://localhost:9108/healthz"
+    "Portal Backend|http://localhost:9113/healthz"
 )
 
 for endpoint in "${endpoints[@]}"; do
@@ -39,7 +40,7 @@ done
 # 3. 測試完整流程
 echo ""
 echo "3. 測試完整入職流程..."
-response=$(curl -s -X POST http://localhost:8084/task \
+response=$(curl -s -X POST http://localhost:9112/task \
   -H "Content-Type: application/json" \
   -d '{"content": "測試員工入職", "user_id": "test"}')
 

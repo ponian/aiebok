@@ -3,8 +3,8 @@ import pytest
 import httpx
 import asyncio
 
-CCA_URL = "http://localhost:8084"
-MCP_URL = "http://localhost:8083"
+CCA_URL = "http://localhost:9112"
+MCP_URL = "http://localhost:9109"
 
 
 @pytest.fixture

@@ -15,22 +15,31 @@ docker compose up -d
 docker compose ps
 
 # 4. Test the flow
-curl -X POST http://localhost:8084/task \
+curl -X POST http://localhost:9112/task \
   -H "Content-Type: application/json" \
   -d '{"content": "新員工張小明明天入職市場部擔任產品經理", "user_id": "hr_manager_001"}'
 
 # 5. Open Portal
-open http://localhost:3000
+open http://localhost:9114
 ```
 
 ## Architecture
 
-- **CCA Agent** (8084): Core orchestrator with LLM
-- **MCP Service** (8083): Tool registry and routing
-- **HR Agent** (8081): Employee management
-- **IT Agent** (8082): AD account management
-- **Mock APIs** (8090/8091): Simulated enterprise systems
-- **Portal** (3000): Web UI
+| Service | Host Port | Container Port | Description |
+|---------|-----------|----------------|-------------|
+| CCA Agent | 9112 | 8084 | Core orchestrator with LLM |
+| MCP Service | 9109 | 8083 | Tool registry and routing |
+| HR Agent | 9110 | 8081 | Employee management |
+| IT Agent | 9111 | 8082 | AD account management |
+| Mock AD API | 9107 | 8090 | Simulated Active Directory |
+| Mock HR API | 9108 | 8091 | Simulated HR system |
+| Portal Backend | 9113 | 8085 | API gateway |
+| Portal Frontend | 9114 | 3000 | Web UI (Next.js) |
+| PostgreSQL | 9101 | 5432 | Database |
+| Redis | 9102 | 6379 | Cache/session |
+| NATS | 9103 | 4222 | Message queue |
+| ChromaDB | 9105 | 8000 | Vector DB |
+| Ollama | 9106 | 11434 | Local LLM |
 
 ## Prerequisites
 
