@@ -23,6 +23,25 @@ curl -X POST http://localhost:9112/task \
 open http://localhost:9114
 ```
 
+## Viewing Logs
+
+```bash
+# All services (real-time, like tail -f)
+docker compose logs -f
+
+# Specific service
+docker compose logs -f cca-agent
+
+# Multiple services
+docker compose logs -f cca-agent mcp-service hr-agent it-agent
+
+# Last N lines (e.g., 50)
+docker compose logs --tail 50 cca-agent
+
+# Since a time ago
+docker compose logs --since 10m cca-agent
+```
+
 ## Architecture
 
 | Service | Host Port | Container Port | Description |
