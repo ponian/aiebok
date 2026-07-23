@@ -400,6 +400,19 @@ graph LR
     MCP[📡 MCP Service] --> Interface
 ```
 
+**協作關係**
+
+Specialized Agents 的運作依賴四個關鍵組件的協作：
+
+| 組件 | 職責 | 詳見 |
+|------|------|------|
+| **Letta** | Agent 生命週期管理、記憶持久化、狀態恢復 | §2.6 |
+| **Agent Registry** | 能力註冊、服務發現、SLA 管理 | §2.3.4 |
+| **LangGraph** | 任務調度、工作流編排、並行/串行控制 | §2.2.2 |
+| **MCP Service** | 標準化上下文傳遞、結構化通信 | §2.4 |
+
+這四個組件形成 Agent 的「**基礎設施層**」：Letta 負責「Agent 是什麼」，Agent Registry 負責「Agent 能做什麼」，LangGraph 負責「Agent 何時做」，MCP Service 負責「Agent 如何溝通」。
+
 ### 2.3.2 能力暴露（Capability Exposure）
 
 每個 Specialized Agent 通過標準化的 Schema 向平台暴露其能力：
