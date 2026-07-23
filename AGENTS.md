@@ -15,7 +15,7 @@ aiebok/
 │   ├── agents/              # cca/, hr_agent/, it_agent/
 │   ├── mcp_service/         # MCP tool registry & routing
 │   ├── mocks/               # ad-api/, hr-api/ (simulated backends)
-│   ├── portal/              # backend/ (FastAPI) + frontend/ (Next.js 14)
+│   ├── portal/              # backend/ (FastAPI) + frontend/ (Next.js 16)
 │   ├── knowledge/           # RAG vector store setup
 │   ├── scripts/             # seed_knowledge.sh, verify_setup.sh
 │   ├── tests/               # test_e2e_onboarding.py, performance/
@@ -66,14 +66,14 @@ docker compose ps              # verify all healthy
 |-------|------------|---------|
 | Agent Framework | Letta (letta-ai/letta) | Apache 2.0 |
 | Workflow Orchestration | LangGraph | MIT |
-| LLM Runtime | Ollama + Llama 3 / Mistral | MIT |
+| LLM Runtime | Ollama + Llama 4 / Qwen 3 | MIT |
 | Communication | gRPC + Protobuf | Apache 2.0 |
 | Message Queue | NATS | Apache 2.0 |
 | Container Orchestration | Kubernetes | Apache 2.0 |
 | Service Mesh | Istio | Apache 2.0 |
 | Observability | OpenTelemetry | Apache 2.0 |
 | Monitoring | Prometheus + Grafana | Apache 2.0 / AGPL |
-| Portal Frontend | Next.js 14 + shadcn/ui | MIT |
+| Portal Frontend | Next.js 16 + shadcn/ui | MIT |
 | Portal Backend | FastAPI | MIT |
 
 ## ANTI-PATTERNS

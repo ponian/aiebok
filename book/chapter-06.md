@@ -41,7 +41,7 @@ agent:
 # === LLM 配置 ===
 llm:
   provider: ollama
-  model: llama3:70b                     # 70B 參數模型，HR 需要較強的語義理解能力
+  model: llama4-scout                   # Scout 使用 17B active 參數，性能接近 70B 級別模型
   temperature: 0.2                      # 低溫度 = 確定性輸出（HR 操作不容許隨機性）
   max_tokens: 2048                      # HR 回覆通常不長（結構化結果為主）
 

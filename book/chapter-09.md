@@ -156,7 +156,7 @@ class InstrumentedITAgent:
             # 2. 追蹤 LLM 推理 — 嵌套 Span（子 Span）
             with AgentTracer.trace_llm_call(
                 agent_id="it-agent",
-                model="llama3:70b"
+                model="llama4-scout"
             ) as llm_span:
                 plan = await self._plan_task(task)
                 llm_span.set_attribute("llm.tokens.input", plan.tokens_used.input)
@@ -212,7 +212,7 @@ span_attributes:
 
   # ---- LLM 屬性 ----
   llm.provider: "ollama"              # LLM 提供者（本地 Ollama vs 遠端 API）
-  llm.model: "llama3:70b"             # 模型名稱（追蹤不同模型的性能差異）
+  llm.model: "llama4-scout"             # 模型名稱（追蹤不同模型的性能差異）
   llm.tokens.input: 1234              # 輸入 Token 數（成本計算核心）
   llm.tokens.output: 567              # 輸出 Token 數
   llm.temperature: 0.2                # 溫度參數（調試時追溯隨機性配置）
@@ -761,10 +761,10 @@ llm_latency = meter.create_histogram(
 
 # Token 價格表 — 混合部署場景：本地 Ollama 免費，雲端 API 按量計費
 TOKEN_PRICING = {
-    "llama3:70b": {"input": 0.0, "output": 0.0},  # 本地部署免費
-    "gpt-4o": {"input": 0.0025, "output": 0.01},
-    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
-    "claude-3-5-sonnet": {"input": 0.003, "output": 0.015},
+    "llama4-scout": {"input": 0.0, "output": 0.0},          # 本地部署免費
+    "gpt-5": {"input": 0.005, "output": 0.015},             # 2026 年旗艦模型
+    "gpt-4.1-mini": {"input": 0.0004, "output": 0.0016},    # 經濟型降級選項
+    "claude-opus-4": {"input": 0.0075, "output": 0.03},     # Anthropic 旗艦模型
 }
 
 

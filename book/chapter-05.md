@@ -201,7 +201,7 @@ class CCACore:
 |------|-----|-------------------|
 | **工具集** | 只包含協調類工具（查詢、發送、確認） | 包含業務操作工具（創建賬號、查詢數據） |
 | **Prompt** | 強調推理過程輸出、決策透明性 | 強調領域專業知識、操作準確性 |
-| **LLM** | 使用最強模型（Claude 3.5 Sonnet） | 使用本地模型（Llama 3 70B） |
+| **LLM** | 使用最強模型（Claude Opus 4） | 使用本地模型（Llama 4 Scout / Qwen 3 235B） |
 | **步數限制** | 較高（15 步），因為需要多輪推理 | 較低（10 步），任務相對直接 |
 | **審計要求** | 每個決策都記錄完整推理過程 | 記錄操作結果即可 |
 
@@ -638,7 +638,7 @@ ERROR_STRATEGIES = {
     ErrorCategory.LLM_ERROR: {
         "severity": ErrorSeverity.CRITICAL,
         "strategy": "fallback_model",            # 切換到備用模型
-        "fallback_model": "gpt-4o-mini"          # 降級到較小但更穩定的模型
+        "fallback_model": "gpt-4.1-mini"          # 降級到較小但更穩定的模型
     }
 }
 
@@ -696,7 +696,7 @@ async def handle_error(
 **關鍵設計決策**：
 - **策略表驅動**：所有錯誤策略集中在 `ERROR_STRATEGIES` 字典中，新增錯誤類型只需添加一個條目，不需要修改處理邏輯。這比 `if/elif` 鏈更易維護。
 - **降級模式**：MCP 故障時，CCA 可以繞過 MCP Service 直接調用 Agent。這是一個重要的容錯機制 — MCP 是通信中轉站，但不是唯一的通信路徑。
-- **LLM 備用模型**：當主力 LLM（如 Claude）不可用時，自動切換到備用模型（如 gpt-4o-mini）。雖然備用模型能力較弱，但「能用」比「不能用」好。
+- **LLM 備用模型**：當主力 LLM（如 Claude）不可用時，自動切換到備用模型（如 gpt-4.1-mini）。雖然備用模型能力較弱，但「能用」比「不能用」好。
 
 ### 5.4.2 部分完成的處理
 
@@ -760,7 +760,7 @@ CCA 的行為由配置參數控制 — 不同環境（開發、測試、生產�
 defaults:
   llm:
     provider: anthropic
-    model: claude-3-5-sonnet-20241022
+    model: claude-opus-4-20250514
     temperature: 0.1            # 低溫度 = 確定性更高的輸出（適合生產）
     max_tokens: 4096            # 最大 token 數（影響回覆長度和成本）
   confidence_threshold: 0.75    # 信心度門檻（低於此值時要求用戶確認）
@@ -771,7 +771,7 @@ environments:
   development:
     llm:
       provider: ollama              # 本地 LLM — 免費，但能力較弱
-      model: llama3:8b              # 8B 參數模型，適合本地運行
+      model: qwen3:8b               # 8B 參數模型，適合本地運行
       base_url: http://localhost:11434  # Ollama 本地端點
     confidence_threshold: 0.5       # 開發時降低門檻（減少確認彈窗，提升開發效率）
     max_task_steps: 5               # 減少步驟數（本地 LLM 推理速度較慢）
@@ -779,13 +779,13 @@ environments:
   staging:
     llm:
       provider: anthropic
-      model: claude-3-5-sonnet-20241022  # 與生產環境相同，測試真實行為
+      model: claude-opus-4-20250514  # 與生產環境相同，測試真實行為
     confidence_threshold: 0.7       # 接近生產門檻（測試確認觸發頻率）
 
   production:
     llm:
       provider: anthropic
-      model: claude-3-5-sonnet-20241022
+      model: claude-opus-4-20250514
     confidence_threshold: 0.75      # 生產門檻（平衡效率與安全）
     max_task_steps: 15              # 允許更長的推理鏈（複雜場景）
     audit_level: full               # 完整審計（記錄所有決策的推理過程）

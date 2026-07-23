@@ -43,7 +43,7 @@ graph TB
 
 | 組件 | 技術選型 | 理由 |
 |------|---------|------|
-| **前端框架** | Next.js 14 | SSR/SSG 混合，React 生態 |
+| **前端框架** | Next.js 16 | SSR/SSG 混合，React 生態 |
 | **UI 組件** | shadcn/ui | 可定製，無依賴綁定 |
 | **狀態管理** | Zustand | 輕量，TypeScript 友好 |
 | **實時通信** | Socket.IO | WebSocket + 自動降級 |

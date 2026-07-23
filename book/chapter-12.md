@@ -43,7 +43,7 @@ ai-agent-platform/
 │   └── frontend/
 │       └── src/
 │           └── app/
-│               └── page.tsx     # Next.js 14 聊天介面
+│               └── page.tsx     # Next.js 16 聊天介面
 │
 ├── knowledge/                   # RAG 知識庫（可選，未啟用）
 │
@@ -76,7 +76,7 @@ LLM_MODEL=qwen2.5:7b         # Ollama 模型名稱，對應 ollama pull 的模�
 API_KEY=your-api-key-here     # 生產環境 API 密鑰（MVP 階段不使用）
 ```
 
-> **為什麼選 `qwen2.5:7b`？** 在無 GPU 的環境下，`qwen2.5:7b`（~4.7GB）是目前最佳的 CPU-only 推理模型。它具備足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，且載入速度快、佔用記憶體低。如果你有 NVIDIA GPU，可以切換到 `llama3:8b` 或 `qwen2.5:14b` 獲得更好的推理品質。
+> **為什麼選 `qwen2.5:7b`？** 在無 GPU 的環境下，`qwen2.5:7b`（~4.7GB）是輕量級 CPU-only 推理的可靠選擇。它具備足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，且載入速度快、佔用記憶體低。如果你有 NVIDIA GPU 或更多記憶體，可以切換到 `llama4-scout` 或 `qwen3:14b` 獲得更好的推理品質。
 
 ### 12.2.2 Docker Compose 配置
 
@@ -276,7 +276,7 @@ services:
       retries: 3
 
   portal-frontend:
-    build: ./portal/frontend            # Next.js 14 前端
+    build: ./portal/frontend            # Next.js 16 前端
     ports:
       - "9114:3000"                     # 標準 Next.js 端口
     depends_on:
@@ -972,7 +972,7 @@ async def health():
 docker compose exec ollama ollama pull qwen2.5:7b  # 下載 ~4.7GB 模型文件
 ```
 
-> **為什麼不需要 GPU？** MVP 選擇 `qwen2.5:7b`（~4.7GB）是因為它在 CPU 上的推理品質足夠驅動結構化 JSON 輸出。一個入職流程（3-5 個 tool call）大約需要 2-5 分鐘完成，這對演示來說完全可以接受。如果你有 NVIDIA GPU，可以在 docker-compose.yml 中取消 Ollama 服務的 GPU 限制，切換到 `qwen2.5:14b` 或 `llama3:8b` 獲得 5-10 倍的推理速度。
+> **為什麼不需要 GPU？** MVP 選擇 `qwen2.5:7b`（~4.7GB）是因為它在 CPU 上的推理品質足夠驅動結構化 JSON 輸出。一個入職流程（3-5 個 tool call）大約需要 2-5 分鐘完成，這對演示來說完全可以接受。如果你有 NVIDIA GPU，可以在 docker-compose.yml 中取消 Ollama 服務的 GPU 限制，切換到 `qwen3:14b` 或 `llama4-scout` 獲得 5-10 倍的推理速度。
 
 ### 12.5.2 啟動步驟
 
@@ -1288,8 +1288,8 @@ class OllamaClient:
 | `qwen2.5:3b` | 2.0GB | ~15 tokens/s | 一般 | ~3GB |
 | **`qwen2.5:7b`** | **4.7GB** | **~8 tokens/s** | **良好** | **~6GB** |
 | `qwen2.5:14b` | 9.0GB | ~3 tokens/s | 優秀 | ~11GB |
-| `llama3:8b` | 4.7GB | ~8 tokens/s | 良好 | ~6GB |
-| `llama3:70b` | 40GB | 無法在純 CPU 上運行 | 極佳 | ~48GB |
+| `qwen3:8b` | 4.7GB | ~8 tokens/s | 良好 | ~6GB |
+| `llama4-scout` | ~12GB | ~5 tokens/s (CPU) | 優秀 | ~16GB |
 
 `qwen2.5:7b` 在 CPU-only 環境下提供了最佳的性價比：足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，同時保持合理的推理速度。一個典型的入職流程（5 個 tool call × 每次 ~30 秒 LLM 推理）大約需要 2-3 分鐘完成。
 
@@ -1651,7 +1651,7 @@ echo "✅ 驗證完成！"
 - **IT / HR Agent**：扁平函數式實現，每個 tool 是一個獨立 Python 函數，無需框架依賴。
 - **MCP Service**：工具註冊表 + HTTP 路由，使用硬編碼 registry 將 tool name 映射到對應 Agent 的 HTTP 端點。
 - **Mock 服務**：模擬 AD API 和 HR API，無需真實企業系統即可跑通完整流程。
-- **Portal**：Next.js 14 前端 + FastAPI 後端，提供 Web 操作介面。
+- **Portal**：Next.js 16 前端 + FastAPI 後端，提供 Web 操作介面。
 - **數據層**：PostgreSQL + Redis + ChromaDB（RAG 知識庫）。
 
 ### 端口映射

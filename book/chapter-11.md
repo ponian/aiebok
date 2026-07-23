@@ -71,13 +71,13 @@ MVP 階段遵循「最小複雜度」原則：所有服務以單進程運行，�
 core:
   cca_agent:
     type: single_process  # 單進程運行，適合 MVP 快速驗證
-    llm: ollama/llama3:70b  # 本地 LLM，無需 API Key
+    llm: ollama/llama4-scout  # 本地 LLM，無需 API Key
     memory: in_memory  # 記憶體存儲，重啟後丟失（MVP 可接受）
 
   it_agent:
     type: single_process
     tools: [create_ad_account, configure_permissions, send_notification]  # IT 操作工具集
-    llm: ollama/llama3:70b
+    llm: ollama/llama4-scout
 
   mcp_service:
     type: http_json_rpc  # HTTP JSON-RPC 協議，簡單易調試
@@ -133,20 +133,20 @@ core:
   cca_agent:
     type: kubernetes_deployment  # 升級為 K8s Deployment，支持自動擴展
     replicas: 2  # 雙副本，提高可用性
-    llm: ollama/llama3:70b
+    llm: ollama/llama4-scout
     memory: postgresql  # 記憶體 → PostgreSQL，持久化 Agent 狀態
 
   hr_agent:
     type: kubernetes_deployment
     replicas: 2
     tools: [query_employee, update_employee, query_policy]  # HR 專用工具集
-    llm: ollama/llama3:70b
+    llm: ollama/llama4-scout
 
   it_agent:
     type: kubernetes_deployment
     replicas: 2
     tools: [create_ad_account, configure_permissions, send_notification]
-    llm: ollama/llama3:70b
+    llm: ollama/llama4-scout
 
   mcp_service:
     type: http_json_rpc
@@ -607,7 +607,7 @@ graph TB
 | **LangGraph** | LangGraph | LangChain 生態的工作流編排框架，基於有狀態的有向圖實現 Agent 工作流 |
 | **OTel** | OpenTelemetry | CNCF 可觀測性標準，提供 Traces、Metrics、Logs 的統一採集與傳輸 |
 | **RAG** | Retrieval-Augmented Generation | 檢索增強生成，結合外部知識庫提升 LLM 回答準確性 |
-| **LLM** | Large Language Model | 大型語言模型，如 GPT-4、Claude、Llama 等 |
+| **LLM** | Large Language Model | 大型語言模型，如 GPT-5、Claude Opus 4、Llama 4 等 |
 | **KPI** | Key Performance Indicator | 關鍵績效指標，用於量化衡量項目進展與成果 |
 | **MTTR** | Mean Time To Recovery | 平均恢復時間，衡量系統故障後的修復速度 |
 | **FTE** | Full-Time Equivalent | 全職當量，用於衡量人力節省（1 FTE = 1 個全職員工的工作量） |

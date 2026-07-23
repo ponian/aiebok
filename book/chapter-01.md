@@ -2,7 +2,7 @@
 
 > 「我們正在從『軟體輔助人類』的時代，走向『軟體自主完成工作』的時代。這不是漸進式的改良，而是企業軟體架構的典範轉移。」
 
-在過去兩年，大語言模型（Large Language Model, LLM）的能力邊界經歷了爆炸式的擴展。從 GPT-4 到 Claude 3，從 Llama 3 到 Mistral Large，這些模型不再只是「文字生成器」，而是逐漸展現出推理（Reasoning）、規劃（Planning）、工具使用（Tool Use）與多步驟任務執行的能力。這些能力的聚合，催生了一個全新的軟體類別 — **AI Agent**。
+2023 年，大語言模型（Large Language Model, LLM）的能力邊界開始經歷爆炸式的擴展。從 GPT-4 到 Claude 3，從 Llama 3 到 Mistral Large，這些模型逐漸展現出推理（Reasoning）、規劃（Planning）、工具使用（Tool Use）與多步驟任務執行的能力。到了 2025-2026 年，新一代模型進一步鞏固了這些能力——GPT-4.5、Claude Opus 4、Llama 4、DeepSeek-R1 等模型在推理深度、長上下文處理與工具調用可靠性上都有質的飛躍。這些能力的聚合，催生了一個全新的軟體類別 — **AI Agent**。
 
 而當我們將多個 AI Agent 組織起來，讓它們在企業內部協同工作、共享上下文、共同完成複雜業務流程時，我們所需要的就不再是一個簡單的聊天機器人框架，而是一個完整的 **AI Native Agent Platform**。這正是本書要探討的主題。
 
@@ -366,8 +366,9 @@ AIEBoK 將 AI 系統工程劃分為多個知識領域（Knowledge Areas），涵
 |------|------|---------|---------|---------|
 | **LangGraph** | 工作流編排 | 狀態機、圖結構、條件分支 | 複雜 Agent 工作流 | ✅ 用於流程編排 |
 | **Letta** | Agent 生命週期 | 狀態持久化、長期記憶、對話管理 | 需要持久狀態的 Agent | ✅ 用於 Agent 框架 |
-| **AutoGen** | 多 Agent 對話 | 對話式協作、代碼執行 | 研究與原型驗證 | ⚠️ 原型階段可用 |
+| **AG2 (AutoGen)** | 多 Agent 對話 | 對話式協作、代碼執行 | 研究與原型驗證 | ⚠️ 原型階段可用 |
 | **CrewAI** | 角色扮演 | 角色定義、任務分配 | 簡單多 Agent 場景 | ⚠️ 適合快速驗證 |
+| **OpenAI Agents SDK** | 官方 Agent 框架 | 工具調用、Handoff、Guardrails | 單 Agent 應用 | ⚠️ 單 Agent 場景 |
 | **Claude Agent SDK** | Anthropic 官方 | 工具調用、安全邊界 | 單 Agent 應用 | ⚠️ 單 Agent 場景 |
 
 ### 1.7.2 為什麼選擇 LangGraph + Letta

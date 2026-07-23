@@ -829,7 +829,7 @@ cca:                                  # CCA Agent 配置 — 核心組件，資�
       cpu: "1000m"                    # 最大可使用 1 核 CPU
   llm:
     provider: anthropic               # LLM 供應商 — 通過 ConfigMap 注入到 Pod
-    model: claude-3-5-sonnet-20241022 # 模型版本 — 可以在不改代碼的情況下切換模型
+    model: claude-opus-4-20250514        # 模型版本 — 可以在不改代碼的情況下切換模型
 
 hrAgent:                              # HR Agent 配置 — 資源需求較低
   replicaCount: 1                     # 單副本即可 — HR Agent 處理頻率較低

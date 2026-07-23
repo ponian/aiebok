@@ -169,7 +169,7 @@ spec:
         - name: LLM_PROVIDER
           value: "ollama"                              # 本地 LLM（無外部 API 依賴）
         - name: LLM_MODEL
-          value: "llama3:70b"                          # 70B 參數模型
+          value: "llama4-scout"                        # Llama 4 Scout — 17B active 參數，性能接近 70B 級別
         - name: OLLAMA_BASE_URL
           value: "http://ollama.infra:11434"           # Ollama 在 infra Namespace
         - name: DB_HOST
@@ -1122,7 +1122,7 @@ volumeBindingMode: WaitForFirstConsumer  # 延遲綁定：等到 Pod 調度後�
 **關鍵設計決策**：
 - **`reclaimPolicy: Retain`**：默認的 `Delete` 策略會在 PVC 刪除時同時刪除底層存儲。對 LLM 模型（下載一次需要數小時）來說，意外刪除是災難性的。`Retain` 確保即使 PVC 被誤刪，底層磁碟和模型數據仍保留。
 - **`volumeBindingMode: WaitForFirstConsumer`**：如果立即綁定，存儲可能被分配到某個 zone，但 Pod 調度到了另一個 zone（跨 zone 掛載會失敗或延遲極高）。延遲綁定確保存儲和 Pod 在同一 zone。
-- **100Gi 的容量規劃**：Llama 3 70B (Q4) 約 40GB，加上 7B/13B 等小模型用於不同場景，100Gi 提供了緩衝。`allowVolumeExpansion: true` 允許未來不刪除 PVC 直接擴容。
+- **100Gi 的容量規劃**：Llama 4 Scout (Q4) 約 12GB，加上 Qwen 3 8B 等小模型用於不同場景，100Gi 提供了充足的緩衝。`allowVolumeExpansion: true` 允許未來不刪除 PVC 直接擴容。
 
 ### 8.11.2 PostgreSQL 存儲
 
