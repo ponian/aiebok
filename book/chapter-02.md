@@ -737,20 +737,14 @@ Google A2A Protocol（Agent2Agent Protocol）是一個開放標準，由 Google�
 | **Message** | Agent 之間的通信單元，包含多個 Part（文本、文件、結構化數據） |
 | **Artifact** | 任務的輸出結果，如生成的文件、數據等 |
 
-**與 MCP 的關係**：
+**與 MCP 的核心區別**：
 
-```
-┌─────────────────────────────────────────────────────┐
-│               Google A2A Protocol                    │
-│   AgentCard Discovery │ Task Lifecycle │ Messaging   │
-├─────────────────────────────────────────────────────┤
-│               MCP Protocol                           │
-│   Tool Discovery │ Context Exchange │ Tool Calling   │
-├─────────────────────────────────────────────────────┤
-│               傳輸層                                  │
-│   HTTP/JSON-RPC │ gRPC │ WebSocket                  │
-└─────────────────────────────────────────────────────┘
-```
+| 維度 | MCP | A2A |
+|------|-----|-----|
+| **定位** | 協議標準（格式） | 交互模式（行為） |
+| **定義** | 上下文如何封裝、傳遞、解析 | Agent 之間何時通信、以何種方式通信 |
+| **類比** | HTTP 協議 | RESTful API 設計模式 |
+| **關注點** | 數據格式、序列化、版本兼容 | 時序、依賴、錯誤恢復、並發控制 |
 
 - **MCP**：定義 Agent 如何**使用工具**（Tool Discovery、Tool Calling）
 - **A2A**：定義 Agent 之間**如何協作**（Discovery、Task Management、Messaging）
