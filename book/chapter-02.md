@@ -36,31 +36,31 @@
 }}%%
 graph TD
     User[👤 End User] --> Portal[🖥️ Portal Platform]
-    Portal -->|"REST / WebSocket"| CCA[🧠 Central Coordinator Agent]
+    Portal --> CCA[🧠 Central Coordinator Agent]
 
-    CCA -->|"gRPC / MCP"| MCPSvc[(📡 MCP Service)]
-    CCA -->|"工作流編排"| LangGraph[⚙️ LangGraph Orchestrator]
-    CCA -->|"查詢可用 Agent"| AgentReg[📋 Agent Registry]
+    CCA --> MCPSvc[(📡 MCP Service)]
+    CCA --> LangGraph[⚙️ LangGraph Orchestrator]
+    CCA --> AgentReg[📋 Agent Registry]
 
-    HRAgent -->|"註冊"| AgentReg[📋 Agent Registry]
-    ITAgent -->|"註冊"| AgentReg
-    FinAgent -->|"註冊"| AgentReg
-    AgentReg -->|"發現"| HRAgent[👥 HR Agent]
-    AgentReg -->|"發現"| ITAgent[💻 IT Agent]
-    AgentReg -->|"發現"| FinAgent[💰 Finance Agent]
+    HRAgent --> AgentReg
+    ITAgent --> AgentReg
+    FinAgent --> AgentReg
+    AgentReg --> HRAgent[👥 HR Agent]
+    AgentReg --> ITAgent[💻 IT Agent]
+    AgentReg --> FinAgent[💰 Finance Agent]
 
-    LangGraph -->|"調度"| HRAgent
-    LangGraph -->|"調度"| ITAgent
-    LangGraph -->|"調度"| FinAgent
+    LangGraph --> HRAgent
+    LangGraph --> ITAgent
+    LangGraph --> FinAgent
 
-    MCPSvc -->|"上下文傳遞"| HRAgent
-    MCPSvc -->|"上下文傳遞"| ITAgent
-    MCPSvc -->|"上下文傳遞"| FinAgent
+    MCPSvc --> HRAgent
+    MCPSvc --> ITAgent
+    MCPSvc --> FinAgent
 
-    HRAgent -->|"讀寫"| DataLayer[(🗄️ Data & Knowledge Layer)]
-    ITAgent -->|"讀寫"| DataLayer
-    FinAgent -->|"讀寫"| DataLayer
-    CCA -->|"讀寫"| DataLayer
+    HRAgent --> DataLayer[(🗄️ Data & Knowledge Layer)]
+    ITAgent --> DataLayer
+    FinAgent --> DataLayer
+    CCA --> DataLayer
 
     subgraph PlatformCore["🏛️ Platform Core"]
         CCA
@@ -84,25 +84,25 @@ graph TD
         CloudNative[☁️ Cloud-Native Foundation]
     end
 
-    Portal -. "部署於" .-> CloudNative
-    CCA -. "部署於" .-> CloudNative
-    MCPSvc -. "部署於" .-> CloudNative
-    HRAgent -. "部署於" .-> CloudNative
-    ITAgent -. "部署於" .-> CloudNative
-    FinAgent -. "部署於" .-> CloudNative
+    Portal -. CloudNative
+    CCA -. CloudNative
+    MCPSvc -. CloudNative
+    HRAgent -. CloudNative
+    ITAgent -. CloudNative
+    FinAgent -. CloudNative
 
-    Letta[🔧 Letta Agent Framework] -. "開發框架" .-> CCA
-    Letta -. "開發框架" .-> HRAgent
-    Letta -. "開發框架" .-> ITAgent
-    Letta -. "開發框架" .-> FinAgent
+    Letta[🔧 Letta Agent Framework] -. CCA
+    Letta -. HRAgent
+    Letta -. ITAgent
+    Letta -. FinAgent
 
-    OTel[📊 OpenTelemetry] -->|"導出"| Monitoring[📈 Monitoring Backend<br/>Prometheus + Grafana + Loki + Jaeger]
-    CCA -. "遙測數據" .-> OTel
-    HRAgent -. "遙測數據" .-> OTel
-    ITAgent -. "遙測數據" .-> OTel
-    FinAgent -. "遙測數據" .-> OTel
-    MCPSvc -. "遙測數據" .-> OTel
-    Portal -. "遙測數據" .-> OTel
+    OTel[📊 OpenTelemetry] --> Monitoring[📈 Monitoring Backend<br/>Prometheus + Grafana + Loki + Jaeger]
+    CCA -. OTel
+    HRAgent -. OTel
+    ITAgent -. OTel
+    FinAgent -. OTel
+    MCPSvc -. OTel
+    Portal -. OTel
 
     %% 節點樣式：加大邊框
     style Portal fill:#E3F2FD,stroke:#1565C0,stroke-width:3px
@@ -198,6 +198,24 @@ graph TD
     %% #37 遙測數據 — Portal → OTel
     linkStyle 37 stroke:#E65100,stroke-width:2px,fill:none,stroke-dasharray:4,4
 ```
+
+**圖例：關係線條說明**
+
+| 線條類型 | 顏色 | 樣式 | 說明 |
+|---------|------|------|------|
+| REST / WebSocket | `#1565C0` 藍 | 實線 ── | Portal → CCA，HTTP/WS 請求 |
+| gRPC / MCP | `#2E7D32` 綠 | 實線 ── | CCA → MCP Service，結構化通信 |
+| 工作流編排 | `#AD1457` 紅 | 實線 ── | CCA → LangGraph，任務流程控制 |
+| 查詢可用 Agent | `#00695C` 深綠 | 實線 ── | CCA → Agent Registry，查詢可用 |
+| 註冊 | `#00838F` 青綠 | 長虛線 - - | Agent → Agent Registry，自我註冊 |
+| 發現 | `#0097A7` 藍青 | 短虛線 ··· | Agent Registry → Agent，揭露可用 |
+| 調度 | `#6A1B9A` 紫 | 長虛線 - - | LangGraph → Agent，分派任務 |
+| 上下文傳遞 | `#283593` 靛藍 | 實線 ── | MCP Service → Agent，傳遞上下文 |
+| 讀寫 | `#37474F` 灰 | 點虛線 ··· | Agent → Data Layer，資料存取 |
+| 部署於 | `#78909C` 淺灰 | 短虛線 ··· | 元件 → Cloud-Native Foundation |
+| 開發框架 | `#F57F17` 橙 | 長虛線 - - | Letta → Agent，框架開發 |
+| 導出 | `#BF360C` 深橙 | 實線 ── | OTel → Monitoring，匯出遙測 |
+| 遙測數據 | `#E65100` 橙紅 | 短虛線 ··· | 元件 → OTel，發送遙測訊號 |
 
 ### 2.1.3 架構圖解讀
 
