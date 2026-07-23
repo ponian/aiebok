@@ -63,7 +63,7 @@ sequenceDiagram
     "content": [
       {
         "type": "text",                    // content 是數組，支持多種類型（text、image 等）
-        "text": "已成功為張小明創建 IT 帳號。賬號：zhangxiaoming@company.com，臨時密碼：Temp@123456。請提醒用戶首次登錄後修改密碼。"
+        "text": "已成功為張小明創建 IT 帳號。帳號：zhangxiaoming@company.com，臨時密碼：Temp@123456。請提醒用戶首次登錄後修改密碼。"
       }
     ],
     "isError": false                       // false = 成功；true = 失敗（與 HTTP 狀態碼分離）

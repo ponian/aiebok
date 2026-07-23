@@ -82,7 +82,7 @@ def query_knowledge_base(query: str, context: dict = None) -> str:
     """查詢企業知識庫，獲取政策、SOP 等信息。
 
     Args:
-        query: 查詢內容（如「新員工 IT 賬號創建流程」）
+        query: 查詢內容（如「新員工 IT 帳號創建流程」）
         context: 額外上下文（部門、角色等，用於過濾相關文檔）
     Returns:
         相關知識片段
@@ -114,7 +114,7 @@ CCA_SYSTEM_PROMPT = """你是一個企業級 AI Native Agent Platform 的中央�
 7. **整合結果**：整合所有 Agent 的返回結果，生成統一響應
 
 ## 約束條件
-- 你不直接執行任何業務操作（不能創建賬號、不能發送郵件等）
+- 你不直接執行任何業務操作（不能創建帳號、不能發送郵件等）
 - 每個決策都必須輸出推理過程（用於審計）
 - 當信心度低於 0.75 時，必須向用戶確認
 - 涉及敏感操作（刪除、權限變更、批量操作）時，必須要求用戶明確確認
@@ -199,7 +199,7 @@ class CCACore:
 
 | 維度 | CCA | Specialized Agents |
 |------|-----|-------------------|
-| **工具集** | 只包含協調類工具（查詢、發送、確認） | 包含業務操作工具（創建賬號、查詢數據） |
+| **工具集** | 只包含協調類工具（查詢、發送、確認） | 包含業務操作工具（創建帳號、查詢數據） |
 | **Prompt** | 強調推理過程輸出、決策透明性 | 強調領域專業知識、操作準確性 |
 | **LLM** | 使用最強模型（Claude Opus 4） | 使用本地模型（Llama 4 Scout / Qwen 3 235B） |
 | **步數限制** | 較高（15 步），因為需要多輪推理 | 較低（10 步），任務相對直接 |
@@ -225,7 +225,7 @@ INTENT_SCHEMA = {
         "intent": {
             "type": "string",
             "enum": [
-                "create_it_account",     # 創建 IT 賬號
+                "create_it_account",     # 創建 IT 帳號
                 "reset_password",        # 重置密碼
                 "modify_permissions",    # 修改權限
                 "query_employee_info",   # 查詢員工信息
@@ -267,7 +267,7 @@ async def parse_intent(cca_agent, user_input: str, context: dict) -> dict:
 
     # 構建 Prompt：將用戶輸入和上下文組合為 LLM 的輸入
     # 上下文（角色、部門）幫助 LCA 做更準確的判斷
-    # 例如：HR 用戶詢問「創建賬號」可能是 HR 系統賬號，IT 用戶則是 IT 賬號
+    # 例如：HR 用戶詢問「創建帳號」可能是 HR 系統帳號，IT 用戶則是 IT 帳號
     prompt = f"""分析以下用戶請求，識別意圖和實體。
 
 用戶請求：「{user_input}」
@@ -298,7 +298,7 @@ async def parse_intent(cca_agent, user_input: str, context: dict) -> dict:
 **關鍵設計決策**：
 - **Schema 約束**：使用 `enum` 限定意圖類型，避免 LLM 輸出無效的意圖分類。如果用戶的請求不在 enum 中，LLM 應選擇 `unknown`。
 - **上下文注入**：將用戶角色和部門注入 Prompt，讓 CCA 能區分「HR 問 HR 系統的問題」和「IT 問 HR 系統的問題」。
-- **missing_info 字段**：這是一個關鍵設計 — CCA 不只是識別意圖，還要識別「缺少什麼信息」。如果用戶說「幫張小明創建賬號」但沒說部門，`missing_info` 會包含 `["department"]`，觸發 CCA 向用戶追問。
+- **missing_info 字段**：這是一個關鍵設計 — CCA 不只是識別意圖，還要識別「缺少什麼信息」。如果用戶說「幫張小明創建帳號」但沒說部門，`missing_info` 會包含 `["department"]`，觸發 CCA 向用戶追問。
 
 ### 5.2.2 任務分解策略
 
@@ -370,7 +370,7 @@ async def create_task_plan(state: CCAState) -> CCAState:
         }
 
     # 使用 LLM 生成具體的子任務計劃
-    # 例如：「新員工入職」→ [創建 AD 賬號, 創建郵箱, 分配設備]
+    # 例如：「新員工入職」→ [創建 AD 帳號, 創建郵箱, 分配設備]
     plan = await generate_task_plan(state["cca_agent"], intent)
     return {
         **state,
@@ -700,7 +700,7 @@ async def handle_error(
 
 ### 5.4.2 部分完成的處理
 
-在多步驟任務中，有時部分子任務成功、部分失敗（例如「新員工入職」場景中，AD 賬號創建成功但郵箱分配失敗）。CCA 不能簡單地報錯或全部重試，而是需要智慧地分析哪些步驟已完成，哪些需要補償。
+在多步驟任務中，有時部分子任務成功、部分失敗（例如「新員工入職」場景中，AD 帳號創建成功但郵箱分配失敗）。CCA 不能簡單地報錯或全部重試，而是需要智慧地分析哪些步驟已完成，哪些需要補償。
 
 ```python
 async def handle_partial_completion(
@@ -744,7 +744,7 @@ async def handle_partial_completion(
 
 **關鍵設計決策**：
 - **三種結果狀態**：`completed`（全部成功）、`failed`（全部失敗）、`partial`（部分成功）。`partial` 是最複雜的，需要 CCA 決定如何處理已完成的部分。
-- **補償選項生成**：`generate_compensation_options()` 是一個策略函數，根據失敗步驟的性質生成補償方案。例如：AD 賬號創建成功但郵箱失敗 → 補償選項是「保留 AD 賬號，手動創建郵箱」或「回滾 AD 賬號」。
+- **補償選項生成**：`generate_compensation_options()` 是一個策略函數，根據失敗步驟的性質生成補償方案。例如：AD 帳號創建成功但郵箱失敗 → 補償選項是「保留 AD 帳號，手動創建郵箱」或「回滾 AD 帳號」。
 - **不自動回滾**：CCA 不會自動回滾已完成的步驟，而是將選擇權交給用戶。因為自動回滾可能導致更大的問題（如「已發送的通知郵件無法撤回」）。
 
 ---

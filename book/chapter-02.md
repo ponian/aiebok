@@ -160,7 +160,7 @@ graph TB
 CCA 接收來自 Portal 的自然語言請求，使用 LLM 進行意圖識別與實體提取：
 
 ```
-用戶輸入：「幫新來的張小明開個 IT 賬號，他是市場部的」
+用戶輸入：「幫新來的張小明開個 IT 帳號，他是市場部的」
 
 CCA 解析結果：
 {
@@ -182,7 +182,7 @@ CCA 解析結果：
 基於識別的意圖，CCA 將複雜任務分解為子任務圖（Sub-task Graph）：
 
 ```
-任務：新員工 IT 賬號創建
+任務：新員工 IT 帳號創建
 ├── 子任務 1：從 HR 系統獲取員工詳細信息 → HR Agent
 ├── 子任務 2：創建 Active Directory 帳號 → IT Agent（依賴子任務 1）
 ├── 子任務 3：配置部門權限與群組 → IT Agent（依賴子任務 2）
@@ -211,8 +211,8 @@ CCA 作為 MCP 協議的主要使用者：
 當多個 Agent 完成各自子任務後，CCA 整合所有結果，生成統一的自然語言響應：
 
 ```
-✅ 張小明的 IT 賬號已創建完成：
-• AD 賬號：zhangxm@company.com
+✅ 張小明的 IT 帳號已創建完成：
+• AD 帳號：zhangxm@company.com
 • 初始密碼：已通過安全通道發送
 • 部門權限：市場部標準權限組
 • 歡迎郵件：已發送至 zhangxm@personal.com
@@ -418,7 +418,7 @@ class AgentRegistry:
             await self.etcd.put(key, json.dumps(asdict(reg)))
 ```
 
-**發現流程**：當 CCA 需要「創建 IT 賬號」時，它調用 `registry.discover("create_ad_account")`，Registry 返回所有具備該能力且狀態健康的 Agent 列表，CCA 從中選擇最合適的（基於負載、延遲等指標）。
+**發現流程**：當 CCA 需要「創建 IT 帳號」時，它調用 `registry.discover("create_ad_account")`，Registry 返回所有具備該能力且狀態健康的 Agent 列表，CCA 從中選擇最合適的（基於負載、延遲等指標）。
 
 ---
 
@@ -687,7 +687,7 @@ graph TB
 
 讓我們通過一個具體場景，看看所有組件如何協同工作：
 
-**場景**：HR 經理在 Portal 中輸入「幫新入職的張小明開通 IT 賬號，他是市場部的產品經理」
+**場景**：HR 經理在 Portal 中輸入「幫新入職的張小明開通 IT 帳號，他是市場部的產品經理」
 
 ```mermaid
 sequenceDiagram
@@ -716,9 +716,9 @@ sequenceDiagram
     HR-->>MCP: 返回員工數據
     MCP-->>LG: 轉發結果
 
-    LG->>MCP: SendContext(創建IT賬號)
+    LG->>MCP: SendContext(創建IT帳號)
     MCP->>IT: 路由請求
-    IT->>DB: 寫入賬號信息
+    IT->>DB: 寫入帳號信息
     DB-->>IT: 確認
     IT-->>MCP: 返回創建結果
     MCP-->>LG: 轉發結果

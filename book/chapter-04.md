@@ -706,7 +706,7 @@ service:
 
 MCP Service 使用 gRPC 進行同步的上下文傳遞，但在以下場景中，異步消息隊列更為合適：
 
-- **事件通知**：Agent 完成任務後廣播事件（如「IT 賬號已創建」），多個訂閱者（CCA、審計系統、通知系統）同時接收
+- **事件通知**：Agent 完成任務後廣播事件（如「IT 帳號已創建」），多個訂閱者（CCA、審計系統、通知系統）同時接收
 - **流量削峰**：當大量用戶同時發起請求時，消息隊列緩衝峰值流量
 - **解耦**：Agent 不需要知道消費者的網絡地址
 
@@ -914,12 +914,12 @@ import pytest
 
 @pytest.mark.asyncio  # 標記為異步測試 — Agent 的 step() 是異步方法
 async def test_create_account_for_new_hire(it_agent):
-    """測試 IT Agent 正確處理新員工賬號創建 — 正向行為驗證"""
+    """測試 IT Agent 正確處理新員工帳號創建 — 正向行為驗證"""
 
-    # 場景：市場部新員工入職，需要創建 IT 賬號
+    # 場景：市場部新員工入職，需要創建 IT 帳號
     # it_agent 是 fixture，提供已初始化的 IT Agent 實例
     result = await it_agent.step(
-        user_message="為市場部新入職的張小明創建 IT 賬號"
+        user_message="為市場部新入職的張小明創建 IT 帳號"
     )
 
     # 驗證 1：Agent 調用了正確的工具（不是 create_email 或 delete_account）
@@ -934,16 +934,16 @@ async def test_create_account_for_new_hire(it_agent):
     assert create_call.args["department"] == "市場部"   # 部門信息正確提取
 
     # 驗證 3：回覆內容包含關鍵詞 — 確認 Agent 向用戶提供了有意義的回覆
-    assert "賬號" in result.content or "account" in result.content.lower()
+    assert "帳號" in result.content or "account" in result.content.lower()
 
 @pytest.mark.asyncio
 async def test_agent_rejects_unauthorized_action(it_agent):
     """測試 IT Agent 拒絕越權操作 — 負向行為驗證"""
 
-    # 場景：用戶要求刪除財務部員工的 AD 賬號
+    # 場景：用戶要求刪除財務部員工的 AD 帳號
     # IT Agent 不應該執行刪除操作（越權）
     result = await it_agent.step(
-        user_message="刪除財務部李四的 AD 賬號"
+        user_message="刪除財務部李四的 AD 帳號"
     )
 
     # 驗證 1：Agent 的回覆包含拒絕語義

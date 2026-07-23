@@ -106,15 +106,15 @@ Specialized Agent 來完成這些任務。
 對於複雜請求，CCA 使用 CoT 進行顯式推理：
 
 ```
-用戶請求：「市場部下週有 3 個新員工入職，幫他們把 IT 賬號都開好」
+用戶請求：「市場部下週有 3 個新員工入職，幫他們把 IT 帳號都開好」
 
 CCA 的 CoT 推理過程：
-1. 這個請求涉及「批量 IT 賬號創建」
+1. 這個請求涉及「批量 IT 帳號創建」
 2. 我需要先從 HR 系統獲取下週入職的市場部員工列表
-3. 對每個員工，需要：創建 AD 賬號 → 配置權限 → 發送歡迎郵件
+3. 對每個員工，需要：創建 AD 帳號 → 配置權限 → 發送歡迎郵件
 4. 由於是 3 個員工，子任務可以並行執行（每個員工的操作相互獨立）
 5. 但我需要先確認：是否有標準的入職 IT 配置模板？還是每個員工的權限不同？
-6. 決策：先查詢 HR 系統獲取員工列表，再為每個員工並行啟動 IT 賬號創建流程
+6. 決策：先查詢 HR 系統獲取員工列表，再為每個員工並行啟動 IT 帳號創建流程
 ```
 
 ### 3.1.3 Tool Use 與 Function Calling
@@ -217,7 +217,7 @@ def query_employee_info(employee_name: str) -> dict:
 IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT 操作 Agent。
 
 ## 你的職責
-- 為新員工創建 IT 賬號（Active Directory）
+- 為新員工創建 IT 帳號（Active Directory）
 - 配置部門權限與安全組
 - 發送歡迎郵件與登錄指南
 
@@ -227,7 +227,7 @@ IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT 操作 Agent。
 - 每次操作後必須返回結構化結果
 
 ## 記憶管理
-- 記錄每次創建的賬號信息（用於審計）
+- 記錄每次創建的帳號信息（用於審計）
 - 記憶已知的權限模板（避免重複查詢）
 """
 
@@ -465,10 +465,10 @@ graph TD
 當 Plan-and-Execute 的預定計劃遇到意外情況時，Agent 切換到 ReAct 模式動態應對：
 
 ```
-計劃：為張小明創建 IT 賬號 → 配置權限 → 發送郵件
+計劃：為張小明創建 IT 帳號 → 配置權限 → 發送郵件
 
 執行中：
-[Thought] AD 賬號創建失敗，錯誤信息是「用戶名 zhangxm 已存在」
+[Thought] AD 帳號創建失敗，錯誤信息是「用戶名 zhangxm 已存在」
 [Observation] 系統中已有一個同名用戶
 [Thought] 我需要生成一個替代用戶名，比如 zhangxm2 或 zhangxiaoming
 [Action] 調用工具 check_username_availability("zhangxiaoming")
@@ -557,7 +557,7 @@ hr_kb = AgentKnowledgeBase(
     collection_name="hr_knowledge"
 )
 
-# IT Agent 在創建賬號前，查詢權限配置規範
+# IT Agent 在創建帳號前，查詢權限配置規範
 result = await hr_kb.query(
     "市場部產品經理需要哪些系統權限？",
     context={"department": "市場部", "role": "產品經理"}
@@ -671,7 +671,7 @@ permissions:
   "agent": {"id": "cca-v2", "type": "central_coordinator"},
   "decision": {
     "type": "task_dispatch",
-    "reasoning": "用戶請求創建IT賬號，識別為it_operations類任務，需要HR信息，因此先調度HR Agent獲取員工數據",
+    "reasoning": "用戶請求創建IT帳號，識別為it_operations類任務，需要HR信息，因此先調度HR Agent獲取員工數據",
     "confidence": 0.92,
     "alternatives_considered": ["直接調度IT Agent", "先用戶確認部門信息"]
   },

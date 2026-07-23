@@ -95,7 +95,7 @@ permissions:
 
 ### 6.2.1 IT Agent 的工具集
 
-IT Agent 是 MVP 場景中的核心 Agent，具備創建 AD 賬號、配置權限、發送通知等能力。以下代碼展示了三個核心工具的完整實現 — 每個工具都使用 Pydantic 進行輸入驗證，並返回結構化的結果：
+IT Agent 是 MVP 場景中的核心 Agent，具備創建 AD 帳號、配置權限、發送通知等能力。以下代碼展示了三個核心工具的完整實現 — 每個工具都使用 Pydantic 進行輸入驗證，並返回結構化的結果：
 
 ```python
 # agents/it_agent/tools.py
@@ -268,7 +268,7 @@ async def send_notification(input: SendNotificationInput) -> bool:
 
 **關鍵設計決策**：
 - **Pydantic Schema 作為工具接口**：每個工具的輸入/輸出都用 Pydantic BaseModel 定義。LLM 通過 `Field.description` 理解參數含義，Pydantic 自動驗證類型。這是「結構化工具調用」的基礎 — Agent 不會傳入錯誤類型的參數。
-- **返回結構化結果而非自然語言**：工具返回 `CreateADAccountOutput`（結構化數據），而非「賬號創建成功了」（自然語言）。結構化數據讓 CCA 能精確判斷操作結果，而不依賴 LLM 的語義理解。
+- **返回結構化結果而非自然語言**：工具返回 `CreateADAccountOutput`（結構化數據），而非「帳號創建成功了」（自然語言）。結構化數據讓 CCA 能精確判斷操作結果，而不依賴 LLM 的語義理解。
 - **用戶名衝突自動處理**：`create_ad_account` 在用戶名衝突時自動生成替代（追加數字），而非返回失敗。這減少了 CCA 的介入 — 大多數情況下，Agent 可以自主解決衝突。
 
 ### 6.2.2 IT Agent 的完整 Prompt
@@ -309,7 +309,7 @@ IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT Operations Agent。
 - 操作失敗時，返回具體的錯誤原因（而非籠統的「操作失敗」）
 
 ## 記憶管理
-- 記錄每次創建的賬號信息（用於審計追蹤）
+- 記錄每次創建的帳號信息（用於審計追蹤）
 - 記憶已知的權限模板（避免重複查詢知識庫，提升響應速度）
 - 對於重複的操作模式，學習並優化流程（如常見部門的標準配置）
 
