@@ -31,7 +31,7 @@
     "primaryColor": "#E8F5E9",
     "primaryTextColor": "#1B5E20",
     "lineColor": "#666666",
-    "fontSize": "14px"
+    "fontSize": "16px"
   }
 }}%%
 graph TD
@@ -104,113 +104,99 @@ graph TD
     MCPSvc -. "遙測數據" .-> OTel
     Portal -. "遙測數據" .-> OTel
 
-    %% 關係線條樣式：顏色對應圖例
-    style Portal fill:#E3F2FD,stroke:#1565C0,stroke-width:2px
-    style CCA fill:#FFF3E0,stroke:#E65100,stroke-width:2px
-    style MCPSvc fill:#E8EAF6,stroke:#283593,stroke-width:2px
-    style AgentReg fill:#E0F7FA,stroke:#00695C,stroke-width:2px
-    style LangGraph fill:#FCE4EC,stroke:#AD1457,stroke-width:2px
-    style HRAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px
-    style ITAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px
-    style FinAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px
-    style DataLayer fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px
-    style CloudNative fill:#ECEFF1,stroke:#37474F,stroke-width:2px
-    style Letta fill:#FFF8E1,stroke:#F57F17,stroke-width:2px
-    style OTel fill:#FBE9E7,stroke:#BF360C,stroke-width:2px
-    style Monitoring fill:#E0F2F1,stroke:#004D40,stroke-width:2px
-    style User fill:#FAFAFA,stroke:#424242,stroke-width:1px
+    %% 節點樣式：加大邊框
+    style Portal fill:#E3F2FD,stroke:#1565C0,stroke-width:3px
+    style CCA fill:#FFF3E0,stroke:#E65100,stroke-width:3px
+    style MCPSvc fill:#E8EAF6,stroke:#283593,stroke-width:3px
+    style AgentReg fill:#E0F7FA,stroke:#00695C,stroke-width:3px
+    style LangGraph fill:#FCE4EC,stroke:#AD1457,stroke-width:3px
+    style HRAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:3px
+    style ITAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:3px
+    style FinAgent fill:#F3E5F5,stroke:#6A1B9A,stroke-width:3px
+    style DataLayer fill:#E8F5E9,stroke:#2E7D32,stroke-width:3px
+    style CloudNative fill:#ECEFF1,stroke:#37474F,stroke-width:3px
+    style Letta fill:#FFF8E1,stroke:#F57F17,stroke-width:3px
+    style OTel fill:#FBE9E7,stroke:#BF360C,stroke-width:3px
+    style Monitoring fill:#E0F2F1,stroke:#004D40,stroke-width:3px
+    style User fill:#FAFAFA,stroke:#424242,stroke-width:2px
 
-    %% 邊樣式定義（38 條邊，0-indexed，依圖例顏色）
+    %% 邊樣式定義（38 條邊，0-indexed，加粗至 2.5px）
     %% #0  User → Portal
-    linkStyle 0 stroke:#424242,stroke-width:1.5px,fill:none
+    linkStyle 0 stroke:#424242,stroke-width:2.5px,fill:none
     %% #1  REST/WebSocket — Portal → CCA
-    linkStyle 1 stroke:#1565C0,stroke-width:2px,fill:none
+    linkStyle 1 stroke:#1565C0,stroke-width:2.5px,fill:none
     %% #2  gRPC/MCP — CCA → MCPSvc
-    linkStyle 2 stroke:#2E7D32,stroke-width:2px,fill:none
+    linkStyle 2 stroke:#2E7D32,stroke-width:2.5px,fill:none
     %% #3  工作流編排 — CCA → LangGraph
-    linkStyle 3 stroke:#AD1457,stroke-width:2px,fill:none
+    linkStyle 3 stroke:#AD1457,stroke-width:2.5px,fill:none
     %% #4  查詢可用 Agent — CCA → AgentReg
-    linkStyle 4 stroke:#00695C,stroke-width:2px,fill:none
+    linkStyle 4 stroke:#00695C,stroke-width:2.5px,fill:none
     %% #5  註冊 — HRAgent → AgentReg
-    linkStyle 5 stroke:#00838F,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 5 stroke:#00838F,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #6  註冊 — ITAgent → AgentReg
-    linkStyle 6 stroke:#00838F,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 6 stroke:#00838F,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #7  註冊 — FinAgent → AgentReg
-    linkStyle 7 stroke:#00838F,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 7 stroke:#00838F,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #8  發現 — AgentReg → HRAgent
-    linkStyle 8 stroke:#0097A7,stroke-width:2px,fill:none,stroke-dasharray:4,4
+    linkStyle 8 stroke:#0097A7,stroke-width:2.5px,fill:none,stroke-dasharray:4,4
     %% #9  發現 — AgentReg → ITAgent
-    linkStyle 9 stroke:#0097A7,stroke-width:2px,fill:none,stroke-dasharray:4,4
+    linkStyle 9 stroke:#0097A7,stroke-width:2.5px,fill:none,stroke-dasharray:4,4
     %% #10 發現 — AgentReg → FinAgent
-    linkStyle 10 stroke:#0097A7,stroke-width:2px,fill:none,stroke-dasharray:4,4
+    linkStyle 10 stroke:#0097A7,stroke-width:2.5px,fill:none,stroke-dasharray:4,4
     %% #11 調度 — LangGraph → HRAgent
-    linkStyle 11 stroke:#6A1B9A,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 11 stroke:#6A1B9A,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #12 調度 — LangGraph → ITAgent
-    linkStyle 12 stroke:#6A1B9A,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 12 stroke:#6A1B9A,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #13 調度 — LangGraph → FinAgent
-    linkStyle 13 stroke:#6A1B9A,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 13 stroke:#6A1B9A,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #14 上下文傳遞 — MCPSvc → HRAgent
-    linkStyle 14 stroke:#283593,stroke-width:2px,fill:none
+    linkStyle 14 stroke:#283593,stroke-width:2.5px,fill:none
     %% #15 上下文傳遞 — MCPSvc → ITAgent
-    linkStyle 15 stroke:#283593,stroke-width:2px,fill:none
+    linkStyle 15 stroke:#283593,stroke-width:2.5px,fill:none
     %% #16 上下文傳遞 — MCPSvc → FinAgent
-    linkStyle 16 stroke:#283593,stroke-width:2px,fill:none
+    linkStyle 16 stroke:#283593,stroke-width:2.5px,fill:none
     %% #17 讀寫 — HRAgent → DataLayer
-    linkStyle 17 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 17 stroke:#37474F,stroke-width:2px,fill:none,stroke-dasharray:3,3
     %% #18 讀寫 — ITAgent → DataLayer
-    linkStyle 18 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 18 stroke:#37474F,stroke-width:2px,fill:none,stroke-dasharray:3,3
     %% #19 讀寫 — FinAgent → DataLayer
-    linkStyle 19 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 19 stroke:#37474F,stroke-width:2px,fill:none,stroke-dasharray:3,3
     %% #20 讀寫 — CCA → DataLayer
-    linkStyle 20 stroke:#37474F,stroke-width:1.5px,fill:none,stroke-dasharray:3,3
+    linkStyle 20 stroke:#37474F,stroke-width:2px,fill:none,stroke-dasharray:3,3
     %% #21 部署於 — Portal → CloudNative
-    linkStyle 21 stroke:#78909C,stroke-width:1px,fill:none,stroke-dasharray:2,2
+    linkStyle 21 stroke:#78909C,stroke-width:1.5px,fill:none,stroke-dasharray:2,2
     %% #22 部署於 — CCA → CloudNative
-    linkStyle 22 stroke:#78909C,stroke-width:1px,fill:none,stroke-dasharray:2,2
+    linkStyle 22 stroke:#78909C,stroke-width:1.5px,fill:none,stroke-dasharray:2,2
     %% #23 部署於 — MCPSvc → CloudNative
-    linkStyle 23 stroke:#78909C,stroke-width:1px,fill:none,stroke-dasharray:2,2
+    linkStyle 23 stroke:#78909C,stroke-width:1.5px,fill:none,stroke-dasharray:2,2
     %% #24 部署於 — HRAgent → CloudNative
-    linkStyle 24 stroke:#78909C,stroke-width:1px,fill:none,stroke-dasharray:2,2
+    linkStyle 24 stroke:#78909C,stroke-width:1.5px,fill:none,stroke-dasharray:2,2
     %% #25 部署於 — ITAgent → CloudNative
-    linkStyle 25 stroke:#78909C,stroke-width:1px,fill:none,stroke-dasharray:2,2
+    linkStyle 25 stroke:#78909C,stroke-width:1.5px,fill:none,stroke-dasharray:2,2
     %% #26 部署於 — FinAgent → CloudNative
-    linkStyle 26 stroke:#78909C,stroke-width:1px,fill:none,stroke-dasharray:2,2
+    linkStyle 26 stroke:#78909C,stroke-width:1.5px,fill:none,stroke-dasharray:2,2
     %% #27 開發框架 — Letta → CCA
-    linkStyle 27 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 27 stroke:#F57F17,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #28 開發框架 — Letta → HRAgent
-    linkStyle 28 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 28 stroke:#F57F17,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #29 開發框架 — Letta → ITAgent
-    linkStyle 29 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 29 stroke:#F57F17,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #30 開發框架 — Letta → FinAgent
-    linkStyle 30 stroke:#F57F17,stroke-width:2px,fill:none,stroke-dasharray:8,4
+    linkStyle 30 stroke:#F57F17,stroke-width:2.5px,fill:none,stroke-dasharray:8,4
     %% #31 導出 — OTel → Monitoring
-    linkStyle 31 stroke:#BF360C,stroke-width:2px,fill:none
+    linkStyle 31 stroke:#BF360C,stroke-width:2.5px,fill:none
     %% #32 遙測數據 — CCA → OTel
-    linkStyle 32 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 32 stroke:#E65100,stroke-width:2px,fill:none,stroke-dasharray:4,4
     %% #33 遙測數據 — HRAgent → OTel
-    linkStyle 33 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 33 stroke:#E65100,stroke-width:2px,fill:none,stroke-dasharray:4,4
     %% #34 遙測數據 — ITAgent → OTel
-    linkStyle 34 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 34 stroke:#E65100,stroke-width:2px,fill:none,stroke-dasharray:4,4
     %% #35 遙測數據 — FinAgent → OTel
-    linkStyle 35 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 35 stroke:#E65100,stroke-width:2px,fill:none,stroke-dasharray:4,4
     %% #36 遙測數據 — MCPSvc → OTel
-    linkStyle 36 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 36 stroke:#E65100,stroke-width:2px,fill:none,stroke-dasharray:4,4
     %% #37 遙測數據 — Portal → OTel
-    linkStyle 37 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
-    %% #28 導出 — OTel → Monitoring
-    linkStyle 28 stroke:#BF360C,stroke-width:2px,fill:none
-    %% #29 遙測數據 — CCA → OTel
-    linkStyle 29 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
-    %% #30 遙測數據 — HRAgent → OTel
-    linkStyle 30 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
-    %% #31 遙測數據 — ITAgent → OTel
-    linkStyle 31 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
-    %% #32 遙測數據 — FinAgent → OTel
-    linkStyle 32 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
-    %% #33 遙測數據 — MCPSvc → OTel
-    linkStyle 33 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
-    %% #34 遙測數據 — Portal → OTel
-    linkStyle 34 stroke:#E65100,stroke-width:1.5px,fill:none,stroke-dasharray:4,4
+    linkStyle 37 stroke:#E65100,stroke-width:2px,fill:none,stroke-dasharray:4,4
 ```
 
 ### 2.1.3 架構圖解讀
