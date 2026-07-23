@@ -184,7 +184,7 @@ CCA 解析結果：
 ```
 任務：新員工 IT 賬號創建
 ├── 子任務 1：從 HR 系統獲取員工詳細信息 → HR Agent
-├── 子任務 2：創建 Active Directory 賬戶 → IT Agent（依賴子任務 1）
+├── 子任務 2：創建 Active Directory 帳號 → IT Agent（依賴子任務 1）
 ├── 子任務 3：配置部門權限與群組 → IT Agent（依賴子任務 2）
 ├── 子任務 4：發送歡迎郵件與登錄指南 → IT Agent（依賴子任務 3）
 └── 子任務 5：通知用人部門主管 → HR Agent（依賴子任務 4）
@@ -288,7 +288,7 @@ graph LR
   "capabilities": [
     {
       "name": "create_ad_account",
-      "description": "在 Active Directory 中創建新用戶賬戶",
+      "description": "在 Active Directory 中創建新用戶帳號",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -348,7 +348,7 @@ def create_active_directory_account(
     department: str,
     groups: list[str]
 ) -> dict:
-    """在 Active Directory 中創建賬戶"""
+    """在 Active Directory 中創建帳號"""
     # 實際實現：調用 AD API
     pass
 
@@ -502,7 +502,7 @@ MCP 定義了上下文信息的**格式標準**，但 Agent 之間「如何互�
 
 | 模式 | 場景 | 特點 | 實現方式 |
 |------|------|------|---------|
-| **同步 RPC** | CCA 調用 IT Agent 創建賬戶 | 調用方阻塞等待結果，適合單步快速任務 | MCP `tools/call` + HTTP/gRPC |
+| **同步 RPC** | CCA 調用 IT Agent 創建帳號 | 調用方阻塞等待結果，適合單步快速任務 | MCP `tools/call` + HTTP/gRPC |
 | **異步消息** | CCA 發送長時間任務給 Agent | 調用方立即返回，通過回調或輪詢獲取結果 | MCP + NATS 消息隊列 |
 | **發布/訂閱** | Agent 廣播「新員工已入職」事件 | 多個訂閱者接收事件，鬆耦合 | NATS Pub/Sub + MCP 事件格式 |
 
@@ -520,7 +520,7 @@ sequenceDiagram
 
     Note over U,N: 場景：新員工入職 — 同步 + 異步 + Pub/Sub
 
-    U->>P: 「為新員工 Alice 創建賬戶」
+    U->>P: 「為新員工 Alice 創建帳號」
     P->>C: POST /api/chat (REST)
 
     rect rgb(230, 245, 255)
@@ -532,14 +532,14 @@ sequenceDiagram
     end
 
     rect rgb(255, 245, 230)
-        Note over C,N: 步驟 2：異步消息 — 創建 IT 賬戶（長任務）
+        Note over C,N: 步驟 2：異步消息 — 創建 IT 帳號（長任務）
         C->>M: tools/call (create_account, {user: "Alice", dept: "Engineering"})
         M->>N: 發布異步任務
         N->>I: 消費任務
         I-->>N: 任務已接受 (ack)
         N-->>M: task_id: "abc-123"
         M-->>C: {task_id: "abc-123", status: "processing"}
-        C-->>P: 「IT 賬戶創建中，任務 ID: abc-123」
+        C-->>P: 「IT 帳號創建中，任務 ID: abc-123」
         P-->>U: 顯示任務狀態
     end
 
@@ -553,7 +553,7 @@ sequenceDiagram
     end
 
     C-->>P: WebSocket 推送完成通知
-    P-->>U: 「Alice 的 IT 賬戶已創建，歡迎郵件已發送」
+    P-->>U: 「Alice 的 IT 帳號已創建，歡迎郵件已發送」
 ```
 
 ### 2.5.4 A2A 在本平台中的實踐

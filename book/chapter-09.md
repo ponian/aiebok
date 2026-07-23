@@ -1449,7 +1449,7 @@ graph LR
         D --> F["Span: LLM 推理"]
         D --> G["Span: 查詢員工信息"]
         E --> H["Span: LLM 推理"]
-        E --> I["Span: 創建 AD 賬戶"]
+        E --> I["Span: 創建 AD 帳號"]
     end
 
     style A fill:#f96

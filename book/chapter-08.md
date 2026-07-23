@@ -376,13 +376,13 @@ spec:
 
 ### 8.3.2 IT Agent 的 K8s 配置
 
-IT Agent 與 HR Agent 的部署結構相似，但因 IT 場景（賬戶創建、密碼重置、權限申請）的併發需求更高，副本數設為 3。其敏感配置對接的是 Active Directory API，需要更高的安全管控。以下配置展示了 IT Agent 與 HR Agent 的關鍵差異之處。
+IT Agent 與 HR Agent 的部署結構相似，但因 IT 場景（帳號創建、密碼重置、權限申請）的併發需求更高，副本數設為 3。其敏感配置對接的是 Active Directory API，需要更高的安全管控。以下配置展示了 IT Agent 與 HR Agent 的關鍵差異之處。
 
 ```yaml
 # k8s/agents/it-agent/deployment.yaml
 # ================================================================
 # IT Agent 配置與 HR Agent 結構相同，但有差異：
-# - 副本數 3（IT 場景併發更高：賬戶創建、密碼重置、權限申請）
+# - 副本數 3（IT 場景併發更高：帳號創建、密碼重置、權限申請）
 # - 敏感配置為 Active Directory API（而非 HR API）
 # - 同樣部署在 agents Namespace，共享相同的安全邊界
 apiVersion: apps/v1
@@ -394,7 +394,7 @@ metadata:
     app: it-agent
     domain: information_technology    # 域標籤：IT 領域
 spec:
-  replicas: 3                          # IT 併發需求更高（多個用戶同時申請賬戶）
+  replicas: 3                          # IT 併發需求更高（多個用戶同時申請帳號）
   selector:
     matchLabels:
       app: it-agent
@@ -422,12 +422,12 @@ spec:
           value: "it-agent-v1"
         - name: NATS_URL
           value: "nats://nats.infra:4222"
-        - name: AD_API_URL             # Active Directory API（IT 賬戶管理核心）
+        - name: AD_API_URL             # Active Directory API（IT 帳號管理核心）
           valueFrom:
             secretKeyRef:
               name: it-agent-secrets
               key: ad-api-url
-        - name: AD_API_TOKEN           # AD API Token（高權限：可創建/刪除賬戶）
+        - name: AD_API_TOKEN           # AD API Token（高權限：可創建/刪除帳號）
           valueFrom:
             secretKeyRef:
               name: it-agent-secrets
@@ -447,8 +447,8 @@ spec:
 ```
 
 **關鍵設計決策**：
-- **IT vs HR 副本數差異**：IT Agent `replicas: 3` > HR Agent `replicas: 2`。原因：IT 場景（賬戶創建、密碼重置）的觸發頻率高於 HR 場景（休假查詢、政策問答），且 IT 操作通常有 SLA 時效要求（「30 分鐘內開通賬戶」），需要更多副本保障並發。
-- **AD API 權限管理**：`ad-api-token` 擁有 Active Directory 的高權限（可創建/禁用賬戶）。這類 Token 的存取必須嚴格控制——只有 IT Agent 的 ServiceAccount 能讀取對應的 Secret，CCA 本身不能直接持有 AD 憑證。
+- **IT vs HR 副本數差異**：IT Agent `replicas: 3` > HR Agent `replicas: 2`。原因：IT 場景（帳號創建、密碼重置）的觸發頻率高於 HR 場景（休假查詢、政策問答），且 IT 操作通常有 SLA 時效要求（「30 分鐘內開通帳號」），需要更多副本保障並發。
+- **AD API 權限管理**：`ad-api-token` 擁有 Active Directory 的高權限（可創建/禁用帳號）。這類 Token 的存取必須嚴格控制——只有 IT Agent 的 ServiceAccount 能讀取對應的 Secret，CCA 本身不能直接持有 AD 憑證。
 
 ---
 

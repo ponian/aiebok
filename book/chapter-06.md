@@ -109,7 +109,7 @@ import hashlib
 # 如果缺少必填字段或類型錯誤，Pydantic 會在工具執行前自動報錯
 
 class CreateADAccountInput(BaseModel):
-    """創建 AD 賬戶的輸入參數 — 每個字段都有 description，用於 LLM 理解參數含義"""
+    """創建 AD 帳號的輸入參數 — 每個字段都有 description，用於 LLM 理解參數含義"""
     username: str = Field(description="用戶登錄名（拼音格式，如 zhangxiaoming）")
     display_name: str = Field(description="顯示名稱（中文姓名）")
     department: str = Field(description="所屬部門")
@@ -118,20 +118,20 @@ class CreateADAccountInput(BaseModel):
     manager_email: Optional[str] = Field(default=None, description="直屬主管郵箱")
 
 class CreateADAccountOutput(BaseModel):
-    """創建 AD 賬戶的輸出 — 標準化結果格式，方便 CCA 解析"""
+    """創建 AD 帳號的輸出 — 標準化結果格式，方便 CCA 解析"""
     success: bool                          # 操作是否成功
-    account_id: Optional[str] = None       # 新創建的賬戶 ID（成功時返回）
+    account_id: Optional[str] = None       # 新創建的帳號 ID（成功時返回）
     email: Optional[str] = None            # 自動生成的企業郵箱（成功時返回）
     error_message: Optional[str] = None    # 錯誤原因（失敗時返回）
 
 async def create_ad_account(input: CreateADAccountInput) -> CreateADAccountOutput:
-    """在 Active Directory 中創建用戶賬戶。
+    """在 Active Directory 中創建用戶帳號。
 
     工具行為（LLM 通過 docstring 理解工具的行為）：
     1. 檢查用戶名是否已存在
     2. 如已存在，生成替代用戶名（追加數字）
-    3. 調用 AD API 創建賬戶
-    4. 返回賬戶信息
+    3. 調用 AD API 創建帳號
+    4. 返回帳號信息
     """
     try:
         async with httpx.AsyncClient() as client:
@@ -160,7 +160,7 @@ async def create_ad_account(input: CreateADAccountInput) -> CreateADAccountOutpu
                         error_message="無法找到可用的用戶名"
                     )
 
-            # --- 步驟 2：創建賬戶 ---
+            # --- 步驟 2：創建帳號 ---
             create_resp = await client.post(
                 "https://ad-api.company.internal/v1/accounts",
                 json={
@@ -198,7 +198,7 @@ async def create_ad_account(input: CreateADAccountInput) -> CreateADAccountOutpu
 # === 權限配置工具 ===
 
 class ConfigurePermissionsInput(BaseModel):
-    account_id: str = Field(description="AD 賬戶 ID")
+    account_id: str = Field(description="AD 帳號 ID")
     department: str = Field(description="部門名稱")
     role: str = Field(description="職位角色")
     additional_groups: list[str] = Field(default=[], description="額外安全組")
@@ -281,14 +281,14 @@ IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT Operations Agent。
 
 ## 你的職責
 你負責 IT 相關操作，包括：
-- 為新員工創建 Active Directory 賬戶
+- 為新員工創建 Active Directory 帳號
 - 配置部門權限與安全組
 - 發送歡迎郵件與登錄指南
 - 處理密碼重置請求
 - 查詢 IT 相關政策
 
 ## 你的工具
-1. `create_ad_account`: 創建 AD 賬戶（返回 account_id 和 email）
+1. `create_ad_account`: 創建 AD 帳號（返回 account_id 和 email）
 2. `configure_permissions`: 根據部門和角色配置權限組
 3. `send_notification`: 發送通知郵件
 4. `query_hr_database`: 查詢 HR 數據庫（獲取員工信息）
@@ -297,14 +297,14 @@ IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT Operations Agent。
 ## 工作流程
 收到 CCA 的任務後：
 1. **驗證輸入**：確保必要的員工信息完整（姓名、部門、角色）
-2. **創建賬戶**：調用 create_ad_account（自動處理用戶名衝突）
+2. **創建帳號**：調用 create_ad_account（自動處理用戶名衝突）
 3. **配置權限**：調用 configure_permissions（基於部門模板）
 4. **發送通知**：調用 send_notification（使用 welcome_onboarding 模板）
 5. **返回結果**：返回結構化的操作結果
 
 ## 約束條件
 - 你只能操作特定部門的員工（市場部、技術部、產品部、行政部）
-- 你不能刪除任何賬戶（如收到刪除請求，返回錯誤）
+- 你不能刪除任何帳號（如收到刪除請求，返回錯誤）
 - 每次操作後必須返回結構化結果
 - 操作失敗時，返回具體的錯誤原因（而非籠統的「操作失敗」）
 
@@ -327,7 +327,7 @@ IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT Operations Agent。
 **關鍵設計決策**：
 - **工具列表明確列出**：Agent 需要知道自己有哪些工具。如果 Prompt 中不列出工具，LLM 可能會「幻覺」出不存在的工具名稱，導致調用失敗。
 - **工作流程步驟化**：將複雜操作拆解為 5 個明確步驟，引導 LLM 按順序執行。這比「自由發揮」更可靠 — LLM 傾向於跳步或遺漏步驟，明確的流程清單能減少這類問題。
-- **「你不能做什麼」的硬約束**：明確列出禁止操作（刪除賬戶）和可操作部門。即使用戶要求刪除賬戶，Agent 也會拒絕。這是 Prompt 層面的安全防線。
+- **「你不能做什麼」的硬約束**：明確列出禁止操作（刪除帳號）和可操作部門。即使用戶要求刪除帳號，Agent 也會拒絕。這是 Prompt 層面的安全防線。
 - **結構化輸出格式**：強制要求 JSON 輸出。CCA 依賴 `status` 字段判斷操作結果 — 如果 Agent 返回自然語言，CCA 需要額外的 LLM 調用來解析，增加了延遲和不確定性。
 
 ---
@@ -657,7 +657,7 @@ def it_agent():
 
 @pytest.mark.asyncio
 async def test_create_account_happy_path(it_agent):
-    """測試：正常創建 AD 賬戶 — 驗證完整流程的 Happy Path"""
+    """測試：正常創建 AD 帳號 — 驗證完整流程的 Happy Path"""
     result = await it_agent.handle_task({
         "task_type": "create_it_account",
         "inputs": {
@@ -668,7 +668,7 @@ async def test_create_account_happy_path(it_agent):
     })
 
     assert result["status"] == "success"
-    assert "account_id" in result["account_info"]       # 確保返回了賬戶 ID
+    assert "account_id" in result["account_info"]       # 確保返回了帳號 ID
     assert result["account_info"]["email"].endswith("@company.com")  # 確保郵箱格式正確
 
 # === 衝突處理測試 ===
@@ -743,7 +743,7 @@ import asyncio
 import time
 
 async def test_concurrent_task_handling():
-    """測試 Agent 的並發處理能力 — 模擬 50 個用戶同時請求創建賬戶"""
+    """測試 Agent 的並發處理能力 — 模擬 50 個用戶同時請求創建帳號"""
     agent = ITAgent(config=load_test_config())
     num_tasks = 50
 
@@ -790,7 +790,7 @@ Agent 的版本管理遵循語義化版本（Semantic Versioning）：
 
 | 版本變更 | 說明 | 示例 |
 |----------|------|------|
-| **Major** | 工具集或能力發生重大變更 | 新增刪除賬戶工具（不建議） |
+| **Major** | 工具集或能力發生重大變更 | 新增刪除帳號工具（不建議） |
 | **Minor** | 新增能力或工具 | 新增批量創建能力 |
 | **Patch** | Prompt 優化、Bug 修復 | 修復用戶名衝突處理邏輯 |
 

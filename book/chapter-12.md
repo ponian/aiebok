@@ -21,7 +21,7 @@ ai-agent-platform/
 │   │   └── prompt.py           # CCA 系統提示模板
 │   │
 │   ├── it_agent/
-│   │   └── main.py             # IT Agent（AD 賬戶、權限、通知工具）
+│   │   └── main.py             # IT Agent（AD 帳號、權限、通知工具）
 │   │
 │   └── hr_agent/
 │       └── main.py             # HR Agent（員工查詢、創建工具）
@@ -553,7 +553,7 @@ async def register_tools():
             "schema": {"employee_id": {"type": "string"}},
         },
         "it_agent_create_ad_account": {
-            "description": "創建 AD 賬戶",
+            "description": "創建 AD 帳號",
             "agent_url": "http://it-agent:8082",  # IT Agent 地址
             "schema": {
                 "username": {"type": "string"},
@@ -688,7 +688,7 @@ async def create_ad_account(args: dict) -> dict:
             "email": result["email"],
             "temp_password": temp_password,  # 返回臨時密碼給 CCA
         },
-        "message": f"已成功為 {args['display_name']} 創建 AD 賬戶",
+        "message": f"已成功為 {args['display_name']} 創建 AD 帳號",
     }
 
 
@@ -833,7 +833,7 @@ Mock AD API 模擬企業 Active Directory 服務，用於本地開發和測試�
 
 ```python
 # mocks/ad-api/main.py
-"""Mock Active Directory API — 模擬 AD 賬戶管理"""
+"""Mock Active Directory API — 模擬 AD 帳號管理"""
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uuid
@@ -854,7 +854,7 @@ class CreateAccountRequest(BaseModel):
 
 @app.post("/v1/accounts")
 async def create_account(request: CreateAccountRequest):
-    account_id = str(uuid.uuid4())      # 生成唯一賬戶 ID
+    account_id = str(uuid.uuid4())      # 生成唯一帳號 ID
     email = f"{request.username}@company.com"  # 電子郵件命名規則
 
     # 存入記憶體數據庫
@@ -871,7 +871,7 @@ async def create_account(request: CreateAccountRequest):
     return {
         "account_id": account_id,
         "email": email,
-        "message": f"賬戶 {request.username} 已創建",
+        "message": f"帳號 {request.username} 已創建",
     }
 
 
@@ -1116,7 +1116,7 @@ CCA_SYSTEM_PROMPT = """你是企業級 AI Agent 協同平台的核心控制 Agen
 你可以使用以下工具：
 - hr_agent_create_employee: 創建新員工記錄（參數: name, department, role, start_date）
 - hr_agent_get_employee: 查詢員工信息（參數: employee_id）
-- it_agent_create_ad_account: 創建 AD 賬戶（參數: username, display_name, department, role）
+- it_agent_create_ad_account: 創建 AD 帳號（參數: username, display_name, department, role）
 - it_agent_check_username: 檢查用戶名是否可用（參數: username）
 - it_agent_configure_permissions: 配置用戶權限（參數: account_id, department, role）
 - it_agent_send_notification: 發送通知郵件（參數: recipient, template）
@@ -1130,7 +1130,7 @@ CCA_SYSTEM_PROMPT = """你是企業級 AI Agent 協同平台的核心控制 Agen
 對於新員工入職任務，標準流程為：
 1. 查詢 HR 系統確認員工信息
 2. 在 HR 系統創建員工記錄
-3. 在 AD 中創建賬戶
+3. 在 AD 中創建帳號
 4. 配置 IT 權限
 5. 發送歡迎通知
 
@@ -1330,7 +1330,7 @@ class KnowledgeBaseBuilder:
 1. HR 創建員工記錄（姓名、部門、職位、入職日期）
 2. 分配員工編號（格式：EMP-YYYYMMDD-XXX）
 3. 設置薪資方案（根據職位和部門）
-4. IT 部門創建 AD 賬戶
+4. IT 部門創建 AD 帳號
 5. 配置相關權限組
 6. 發送歡迎郵件（包含臨時密碼和入職指南）
 7. 安排入職培訓
@@ -1339,7 +1339,7 @@ class KnowledgeBaseBuilder:
 - 身份證复印件
 - 學歷證明
 - 離職證明（如適用）
-- 銀行賬戶信息
+- 銀行帳號信息
 
 ## 注意事項
 - 入職日期前 3 天完成所有系統配置
@@ -1381,7 +1381,7 @@ class KnowledgeBaseBuilder:
         print(f"✅ 已初始化 {len(hr_docs)} 個 HR 政策文檔")
 
     def seed_it_knowledge(self):
-        """初始化 IT 知識庫（AD 賬戶管理指南）"""
+        """初始化 IT 知識庫（AD 帳號管理指南）"""
         collection = self.client.get_or_create_collection(
             name="it_knowledge",
             metadata={"hnsw:space": "cosine"}  # 餘弦相似度，適合文本語義搜索
@@ -1390,11 +1390,11 @@ class KnowledgeBaseBuilder:
         it_docs = [
             {
                 "id": "ad_account_guide",
-                "document": """# AD 賬戶管理指南
+                "document": """# AD 帳號管理指南
 
-## 賬戶創建流程
+## 帳號創建流程
 1. 檢查用戶名是否可用（格式：姓氏+名字首字母，如 zhangxm）
-2. 創建 AD 賬戶（ OU 根據部門自動分配）
+2. 創建 AD 帳號（ OU 根據部門自動分配）
 3. 設置臨時密碼（必須包含大小寫字母和數字）
 4. 配置密碼策略（90 天過期，歷史 12 次不重複）
 5. 啟用 MFA（多因素認證）
@@ -1407,7 +1407,7 @@ class KnowledgeBaseBuilder:
 ## 常見問題
 1. 用戶名衝突：使用 中間名首字母 或 數字後綴
 2. 密碼重置：透過 IT Service Desk 申請
-3. 賬戶鎖定：連續 5 次密碼錯誤後鎖定 30 分鐘""",
+3. 帳號鎖定：連續 5 次密碼錯誤後鎖定 30 分鐘""",
                 "metadata": {"category": "it", "topic": "ad_account", "version": "1.0"}
             }
         ]

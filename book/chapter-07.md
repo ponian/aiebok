@@ -38,7 +38,7 @@ sequenceDiagram
 以下展示了 MCP 通信中最常見的三種 JSON-RPC 消息：工具調用請求、成功響應和失敗響應。每個消息都包含 `jsonrpc` 版本標識和用於匹配請求與響應的 `id` 字段，而 `isError` 標誌則將業務層面的成敗與 HTTP 狀態碼分離開來：
 
 ```json
-// === 請求：調用 IT Agent 創建賬戶 ===
+// === 請求：調用 IT Agent 創建帳號 ===
 // MCP 通信基於 JSON-RPC 2.0 標準格式
 {
   "jsonrpc": "2.0",                       // 協議版本（固定值）
@@ -63,7 +63,7 @@ sequenceDiagram
     "content": [
       {
         "type": "text",                    // content 是數組，支持多種類型（text、image 等）
-        "text": "已成功為張小明創建 IT 賬戶。賬號：zhangxiaoming@company.com，臨時密碼：Temp@123456。請提醒用戶首次登錄後修改密碼。"
+        "text": "已成功為張小明創建 IT 帳號。賬號：zhangxiaoming@company.com，臨時密碼：Temp@123456。請提醒用戶首次登錄後修改密碼。"
       }
     ],
     "isError": false                       // false = 成功；true = 失敗（與 HTTP 狀態碼分離）
@@ -79,7 +79,7 @@ sequenceDiagram
     "content": [
       {
         "type": "text",
-        "text": "賬戶創建失敗：市場部（Marketing）不在 IT Agent 的授權部門列表中。錯誤代碼：DEPT_UNAUTHORIZED"
+        "text": "帳號創建失敗：市場部（Marketing）不在 IT Agent 的授權部門列表中。錯誤代碼：DEPT_UNAUTHORIZED"
       }
     ],
     "isError": true                        // MCP 用 isError 標誌失敗，而非 HTTP 狀態碼
@@ -266,7 +266,7 @@ async def handle_tools_list(self, params: dict) -> dict:
     },
     {
       "name": "it-agent_create_ad_account",
-      "description": "在 Active Directory 中創建用戶賬戶",
+      "description": "在 Active Directory 中創建用戶帳號",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -283,7 +283,7 @@ async def handle_tools_list(self, params: dict) -> dict:
         "domain": "information_technology",
         "avg_response_time_ms": 3000,
         "permissions": {"allowed_departments": ["市場部", "技術部", "產品部", "行政部"]}
-        // ↑ allowed_departments —— 此工具只能為這些部門創建賬戶（RBAC 權限控制）
+        // ↑ allowed_departments —— 此工具只能為這些部門創建帳號（RBAC 權限控制）
       }
     }
   ]
@@ -293,7 +293,7 @@ async def handle_tools_list(self, params: dict) -> dict:
 **關鍵設計決策**：
 - **兩工具的參數差異**：`hr-agent_query_employee_database` 只需 `employee_name` + `department`（查詢），而 `it-agent_create_ad_account` 需要 4 個 `required` 參數（寫入操作需要更多信息）。required 字段的嚴格程度反映了操作的「破壞性」——寫入操作比查詢更謹慎。
 - **`permissions` 差異化設計**：HR 工具的 `fields` 限制可查詢的字段（姓名、部門、角色、邮箱），IT 工具的 `allowed_departments` 限制可操作的部門。兩種權限模型體現了「最小權限原則」的不同維度——數據列級別 vs 業務範圍級別。
-- **SLA 差異**：HR 查詢 2 秒 vs IT 創建 3 秒。CCA 可以在 Prompt 中將 SLA 信息傳遞給用戶（「IT 賬戶創建大約需要 3 秒」），提升用戶體驗的可預期性。
+- **SLA 差異**：HR 查詢 2 秒 vs IT 創建 3 秒。CCA 可以在 Prompt 中將 SLA 信息傳遞給用戶（「IT 帳號創建大約需要 3 秒」），提升用戶體驗的可預期性。
 
 ### 7.2.3 工具調用（tools/call）
 
@@ -399,7 +399,7 @@ sequenceDiagram
 
     CCA->>MCP: tools/call it-agent_create_ad_account
     MCP->>IT: 轉發創建請求
-    IT-->>MCP: "AD 賬戶已創建：zhangxiaoming@company.com"
+    IT-->>MCP: "AD 帳號已創建：zhangxiaoming@company.com"
     MCP-->>CCA: 創建結果
 
     CCA->>MCP: tools/call it-agent_configure_permissions
@@ -445,7 +445,7 @@ class ToolExecutor:
         例如：[query_hr, create_it_account, send_notification]
         
         當前是串行執行（await），生產環境可改為並行（asyncio.gather），
-        但需要注意工具之間的依賴關係（如「先查詢員工，再創建賬戶」）。
+        但需要注意工具之間的依賴關係（如「先查詢員工，再創建帳號」）。
         """
         results = []
 
@@ -1211,7 +1211,7 @@ class MCPServiceWithBreaker:
 ```yaml
 # tool_versions.yaml —— 工具多版本管理配置
 # ================================================================
-# 以 create_ad_account（IT 賬戶創建）為例，展示三個版本共存的策略。
+# 以 create_ad_account（IT 帳號創建）為例，展示三個版本共存的策略。
 # 為什麼需要版本管理？
 # - v1 已在生產環境使用，不能直接刪除（破壞向後兼容）
 # - v2 新增 MFA 功能，是當前活躍版本（default）
@@ -1221,7 +1221,7 @@ tools:
   create_ad_account:
     versions:
       v1:
-        description: "在 AD 中創建用戶賬戶（基礎版）"
+        description: "在 AD 中創建用戶帳號（基礎版）"
         schema:
           type: object
           properties:
@@ -1232,7 +1232,7 @@ tools:
         status: deprecated  # 即將下線：已有 v2/v3 取代
 
       v2:
-        description: "在 AD 中創建用戶賬戶（增強版，支持 MFA）"
+        description: "在 AD 中創建用戶帳號（增強版，支持 MFA）"
         schema:
           type: object
           properties:
@@ -1245,7 +1245,7 @@ tools:
         status: active  # 當前活躍版本：CCA 默認調用此版本
 
       v3:
-        description: "在 AD 中創建用戶賬戶（實驗版，支持 SCIM）"
+        description: "在 AD 中創建用戶帳號（實驗版，支持 SCIM）"
         schema:
           type: object
           properties:

@@ -141,7 +141,7 @@ class CreateADAccountOutput(BaseModel):
     error_message: Optional[str] = None
 
 async def create_ad_account(input: CreateADAccountInput) -> CreateADAccountOutput:
-    """在 Active Directory 中創建用戶賬戶
+    """在 Active Directory 中創建用戶帳號
 
     這個工具封裝了對企業 AD 系統的 API 調用。
     包含完整的錯誤處理與重試邏輯。
@@ -191,7 +191,7 @@ from letta.schemas.message import Message
 # 定義 IT Agent 的工具集
 @Tool
 def create_ad_account(username: str, department: str, role: str) -> dict:
-    """在 Active Directory 中創建新用戶賬戶。
+    """在 Active Directory 中創建新用戶帳號。
 
     Args:
         username: 用戶登錄名（拼音格式）
@@ -223,7 +223,7 @@ IT_AGENT_SYSTEM_PROMPT = """你是企業 AI 平台的 IT 操作 Agent。
 
 ## 約束
 - 你只能操作特定部門的員工（市場部、技術部、產品部）
-- 你不能刪除任何賬戶
+- 你不能刪除任何帳號
 - 每次操作後必須返回結構化結果
 
 ## 記憶管理
@@ -645,7 +645,7 @@ permissions:
     actions: [create_account, reset_password, query_user]
     constraints:
       - "department in ['市場部', '技術部', '產品部']"  # 只能操作特定部門
-      - "not action in ['delete_account']"             # 不能刪除賬戶
+      - "not action in ['delete_account']"             # 不能刪除帳號
 
   - resource: email_system
     actions: [send_email]
