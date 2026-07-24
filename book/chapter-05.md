@@ -760,7 +760,7 @@ CCA 的行為由配置參數控制 — 不同環境（開發、測試、生產�
 defaults:
   llm:
     provider: anthropic
-    model: claude-opus-4-20250514
+    model: claude-opus-4
     temperature: 0.1            # 低溫度 = 確定性更高的輸出（適合生產）
     max_tokens: 4096            # 最大 token 數（影響回覆長度和成本）
   confidence_threshold: 0.75    # 信心度門檻（低於此值時要求用戶確認）
@@ -779,13 +779,13 @@ environments:
   staging:
     llm:
       provider: anthropic
-      model: claude-opus-4-20250514  # 與生產環境相同，測試真實行為
+      model: claude-opus-4          # 與生產環境相同，測試真實行為
     confidence_threshold: 0.7       # 接近生產門檻（測試確認觸發頻率）
 
   production:
     llm:
       provider: anthropic
-      model: claude-opus-4-20250514
+      model: claude-opus-4
     confidence_threshold: 0.75      # 生產門檻（平衡效率與安全）
     max_task_steps: 15              # 允許更長的推理鏈（複雜場景）
     audit_level: full               # 完整審計（記錄所有決策的推理過程）

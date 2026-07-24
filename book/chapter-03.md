@@ -35,7 +35,7 @@ LLM 是 Agent 的「推理引擎」，選型需要在以下五個維度間權衡
 LLM_CONFIG = {
     "cca": {
         "provider": "anthropic",
-        "model": "claude-opus-4-20250514",
+        "model": "claude-opus-4",
         "max_tokens": 8192,
         "temperature": 0.1,  # 低溫度確保決策穩定性
     },
