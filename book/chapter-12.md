@@ -1030,8 +1030,8 @@ open http://localhost:9114
 | MCP Service | 8083 | 9109 | 工具路由 |
 | HR Agent | 8081 | 9110 | HR Agent |
 | IT Agent | 8082 | 9111 | IT Agent |
-| CCA Agent | 8080 | 9112 | 核心編排 |
-| Portal Backend | 8084 | 9113 | 後端 API |
+| CCA Agent | 8084 | 9112 | 核心編排 |
+| Portal Backend | 8085 | 9113 | 後端 API |
 | Portal Frontend | 3000 | 9114 | 前端 UI |
 
 ### 12.5.4 驗證服務
@@ -1664,13 +1664,13 @@ echo "✅ 驗證完成！"
 | NATS | 4222/8222 | 9103/9104 |
 | ChromaDB | 8000 | 9105 |
 | Ollama | 11434 | 9106 |
-| AD API Mock | 8000 | 9107 |
-| HR API Mock | 8000 | 9108 |
-| MCP Service | 8000 | 9109 |
-| HR Agent | 8000 | 9110 |
-| IT Agent | 8000 | 9111 |
-| CCA Agent | 8000 | 9112 |
-| Portal Backend | 8000 | 9113 |
+| AD API Mock | 8090 | 9107 |
+| HR API Mock | 8091 | 9108 |
+| MCP Service | 8083 | 9109 |
+| HR Agent | 8081 | 9110 |
+| IT Agent | 8082 | 9111 |
+| CCA Agent | 8084 | 9112 |
+| Portal Backend | 8085 | 9113 |
 | Portal Frontend | 3000 | 9114 |
 
 ### 從 MVP 到生產

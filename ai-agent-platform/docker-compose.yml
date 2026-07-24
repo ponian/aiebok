@@ -157,7 +157,7 @@ services:
       - NATS_URL=nats://nats:4222
       - MCP_SERVICE_URL=http://mcp-service:8083
       - OLLAMA_URL=http://ollama:11434
-      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}
+      - LLM_MODEL=${LLM_MODEL:-qwen3:8b}
       - CCA_PORT=8084
     depends_on:
       nats:

@@ -3,7 +3,7 @@ import httpx
 
 
 class OllamaClient:
-    def __init__(self, base_url: str = "http://ollama:11434", model: str = "llama3:8b"):
+    def __init__(self, base_url: str = "http://ollama:11434", model: str = "qwen3:8b"):
         self.base_url = base_url
         self.model = model
         self.client = httpx.AsyncClient(base_url=base_url, timeout=600.0)

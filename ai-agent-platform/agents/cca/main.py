@@ -14,7 +14,7 @@ app = FastAPI(title="CCA Agent")
 
 MCP_SERVICE_URL = os.getenv("MCP_SERVICE_URL", "http://mcp-service:8083")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama3:8b")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen3:8b")
 
 llm = OllamaClient(base_url=OLLAMA_URL, model=LLM_MODEL)
 
