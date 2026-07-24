@@ -30,30 +30,42 @@ async def execute_tool(request: ToolCallRequest):
 
 async def create_employee(args: dict) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{HR_API_URL}/v1/employees",
-            json={
-                "name": args["name"],
-                "department": args["department"],
-                "role": args["role"],
-                "start_date": args["start_date"],
-            },
-        )
-        result = response.json()
+        try:
+            response = await client.post(
+                f"{HR_API_URL}/v1/employees",
+                json={
+                    "name": args["name"],
+                    "department": args["department"],
+                    "role": args["role"],
+                    "start_date": args["start_date"],
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+        except httpx.HTTPStatusError as e:
+            return {"status": "error", "message": f"HR API returned HTTP {e.response.status_code}", "detail": e.response.text[:500]}
+        except (httpx.RequestError, ValueError) as e:
+            return {"status": "error", "message": f"HR API communication failed: {e}"}
 
     return {
         "status": "success",
-        "data": {"employee_id": result["employee_id"]},
-        "message": result["message"],
+        "data": {"employee_id": result.get("employee_id", "unknown")},
+        "message": result.get("message", "員工已創建"),
     }
 
 
 async def get_employee(args: dict) -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            f"{HR_API_URL}/v1/employees/{args['employee_id']}"
-        )
-        result = response.json()
+        try:
+            response = await client.get(
+                f"{HR_API_URL}/v1/employees/{args['employee_id']}"
+            )
+            response.raise_for_status()
+            result = response.json()
+        except httpx.HTTPStatusError as e:
+            return {"status": "error", "message": f"HR API returned HTTP {e.response.status_code}", "detail": e.response.text[:500]}
+        except (httpx.RequestError, ValueError) as e:
+            return {"status": "error", "message": f"HR API communication failed: {e}"}
 
     return {
         "status": "success",

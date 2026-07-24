@@ -35,23 +35,29 @@ async def create_ad_account(args: dict) -> dict:
     temp_password = f"Temp{uuid.uuid4().hex[:8]}!"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{AD_API_URL}/v1/accounts",
-            json={
-                "username": args["username"],
-                "display_name": args["display_name"],
-                "department": args["department"],
-                "role": args["role"],
-                "temp_password": temp_password,
-            },
-        )
-        result = response.json()
+        try:
+            response = await client.post(
+                f"{AD_API_URL}/v1/accounts",
+                json={
+                    "username": args["username"],
+                    "display_name": args["display_name"],
+                    "department": args["department"],
+                    "role": args["role"],
+                    "temp_password": temp_password,
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+        except httpx.HTTPStatusError as e:
+            return {"status": "error", "message": f"AD API returned HTTP {e.response.status_code}", "detail": e.response.text[:500]}
+        except (httpx.RequestError, ValueError) as e:
+            return {"status": "error", "message": f"AD API communication failed: {e}"}
 
     return {
         "status": "success",
         "data": {
-            "account_id": result["account_id"],
-            "email": result["email"],
+            "account_id": result.get("account_id", "unknown"),
+            "email": result.get("email", "unknown"),
             "temp_password": temp_password,
         },
         "message": f"已成功為 {args['display_name']} 創建 AD 賬戶",
@@ -60,14 +66,20 @@ async def create_ad_account(args: dict) -> dict:
 
 async def check_username(args: dict) -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            f"{AD_API_URL}/v1/check-username/{args['username']}"
-        )
-        result = response.json()
+        try:
+            response = await client.get(
+                f"{AD_API_URL}/v1/check-username/{args['username']}"
+            )
+            response.raise_for_status()
+            result = response.json()
+        except httpx.HTTPStatusError as e:
+            return {"status": "error", "message": f"AD API returned HTTP {e.response.status_code}", "detail": e.response.text[:500]}
+        except (httpx.RequestError, ValueError) as e:
+            return {"status": "error", "message": f"AD API communication failed: {e}"}
 
     return {
         "status": "success",
-        "data": {"available": result["available"]},
+        "data": {"available": result.get("available", False)},
     }
 
 

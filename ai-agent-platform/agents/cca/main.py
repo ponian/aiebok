@@ -67,6 +67,11 @@ async def get_task(task_id: str):
     return tasks[task_id]
 
 
+@app.get("/tasks")
+async def list_tasks():
+    return {"tasks": [{"task_id": t["task_id"], "status": t["status"], "content": t["content"]} for t in tasks.values()]}
+
+
 def _parse_llm_json(text: str) -> dict | None:
     """Extract a JSON object from LLM output that may contain markdown fences or
     surrounding prose. Returns None if no valid JSON object is found."""
