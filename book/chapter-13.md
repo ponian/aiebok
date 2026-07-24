@@ -125,6 +125,8 @@
 | Rolling Update | Rolling Update | 滾動更新。逐步替換舊版本 Pod 為新版本 Pod 的部署策略，結合 PDB 確保更新過程中始終有足夠的可用 Pod。 | 第 8 章 |
 | Graceful Shutdown | Graceful Shutdown | 優雅關閉。Pod 收到終止信號後，完成當前正在處理的請求再退出的機制，避免請求丟失。 | 第 8 章 |
 | Health Check | Health Check | 健康檢查。Kubernetes 通過 Liveness（存活探針）、Readiness（就緒探針）和 Startup（啟動探針）來判斷 Pod 狀態。 | 第 8 章 |
+| SPIFFE | Secure Production Identity Framework for Everyone | 雲原生服務身份標準。由 CNCF 推動，為微服務提供安全的身分驗證機制，是 Istio mTLS 身份認證的底層規範。 | 第 4、8 章 |
+| WASM | WebAssembly | 可在瀏覽器和服務器運行的二進制指令格式。新興的邊車代理擴展機制，部分服務網格（如 Istio Ambient Mode）採用 WASM 插件取代傳統 Envoy Sidecar。 | 第 4 章 |
 
 ---
 
@@ -209,6 +211,21 @@
 | Mock Service | Mock Service | 模擬服務。在測試或開發環境中模擬外部系統（如 AD API、HR API）的行為，用於端到端測試。 | 第 12 章 |
 | MCP Tool | MCP Tool | MCP 工具。遵循 MCP 協議規範的可調用工具，每個工具定義了名稱、描述、輸入參數 schema 與執行邏輯。 | 第 7 章 |
 | 知識庫 | Knowledge Base | 結構化的領域知識存儲。通過 RAG 技術與 Agent 整合，使 Agent 能查詢最新的業務知識與文檔。 | 第 6 章 |
+| POC | Proof of Concept | 概念驗證。針對特定技術方案或業務假設進行的初步實現，用於驗證可行性。本書的 MVP 即為一次 POC。 | 第 11 章 |
+| MVP | Minimum Viable Product | 最小可行產品。包含核心功能的初步版本，用於以最低成本驗證產品假設。本書以 IT 帳號創建作為 MVP 場景。 | 第 11、12 章 |
+| ADR | Architecture Decision Record | 架構決策記錄。以結構化文檔記錄重要技術決策及其理由、權衡與影響，供團隊追蹤決策脈絡。 | 第 11 章 |
+
+---
+
+## 指標、成本與工程實踐
+
+| 術語 | 英文 | 釋義 | 主要章節 |
+|------|------|------|----------|
+| KPI | Key Performance Indicator | 關鍵績效指標。用於量化衡量項目進展與成果的可衡量指標。本書從技術（延遲、吞吐量）、業務（處理時間、員工滿意度）與質量（測試覆蓋率、故障率）三維度定義 KPI。 | 第 11 章 |
+| MTTR | Mean Time To Recovery | 平均恢復時間。衡量系統從故障到完全恢復的平均耗時，是 SRE 的核心指標之一。本書的 SLA 目標為 MTTR < 30 分鐘。 | 第 11 章 |
+| FTE | Full-Time Equivalent | 全職當量。用於衡量人力節省的標準化單位，1 FTE = 1 名全職員工的工作量。本書用於量化 Agent 自動化帶來的人力釋放效果。 | 第 11 章 |
+| TCO | Total Cost of Ownership | 總擁有成本。包含基礎設施、人力、培訓、運維等所有相關費用的綜合估算，而非僅計算基礎設施花費。本書估算第一年 TCO ~$386,700。 | 第 11 章 |
+| SRE | Site Reliability Engineering | 站點可靠性工程。Google 創導的運維方法論，通過軟體工程手段解決運維問題，強調 SLI/SLO/SLA 體系、錯誤預算與自動化。 | 第 9、11 章 |
 
 ---
 

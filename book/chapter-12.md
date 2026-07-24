@@ -70,13 +70,13 @@ POSTGRES_PASSWORD=postgres    # PostgreSQL 密碼（生產環境必須更換）
 POSTGRES_DB=agent_platform    # 數據庫名稱
 
 # LLM
-LLM_MODEL=qwen2.5:7b         # Ollama 模型名稱，對應 ollama pull 的模型
+LLM_MODEL=qwen3:8b           # Ollama 模型名稱，對應 ollama pull 的模型
 
 # API Keys (for production)
 API_KEY=your-api-key-here     # 生產環境 API 密鑰（MVP 階段不使用）
 ```
 
-> **為什麼選 `qwen2.5:7b`？** 在無 GPU 的環境下，`qwen2.5:7b`（~4.7GB）是輕量級 CPU-only 推理的可靠選擇。它具備足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，且載入速度快、佔用記憶體低。如果你有 NVIDIA GPU 或更多記憶體，可以切換到 `llama4-scout` 或 `qwen3:14b` 獲得更好的推理品質。
+> **為什麼選 `qwen3:8b`？** 在無 GPU 的環境下，`qwen3:8b`（~4.7GB）是輕量級 CPU-only 推理的可靠選擇。它具備足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，且載入速度快、佔用記憶體低。如果你有 NVIDIA GPU 或更多記憶體，可以切換到 `llama4-scout` 或 `qwen3:14b` 獲得更好的推理品質。
 
 ### 12.2.2 Docker Compose 配置
 
@@ -242,7 +242,7 @@ services:
       - NATS_URL=nats://nats:4222
       - MCP_SERVICE_URL=http://mcp-service:8083  # 通過 MCP 調用其他 Agent
       - OLLAMA_URL=http://ollama:11434           # LLM 推理端點
-      - LLM_MODEL=${LLM_MODEL:-qwen2.5:7b}      # 從 .env 讀取模型配置
+      - LLM_MODEL=${LLM_MODEL:-qwen3:8b}        # 從 .env 讀取模型配置
       - CCA_PORT=8084
     depends_on:
       nats:
@@ -327,7 +327,7 @@ app = FastAPI(title="CCA Agent")
 # 從環境變量讀取服務地址（docker-compose.yml 設定）
 MCP_SERVICE_URL = os.getenv("MCP_SERVICE_URL", "http://mcp-service:8083")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen3:8b")
 
 llm = OllamaClient(base_url=OLLAMA_URL, model=LLM_MODEL)  # LLM 推理客戶端
 
@@ -458,11 +458,11 @@ async def health():
     return {"status": "healthy", "model": LLM_MODEL, "tasks_count": len(tasks)}
 ```
 
-> **關鍵設計決策**：CCA 的 `/task` endpoint 使用 `asyncio.create_task()` 實現「fire-and-forget」模式——立即返回 `task_id`，在背景執行 LLM 推理循環。這是因為 CPU 推理（qwen2.5:7b）每個 iteration 可能耗時 30-60 秒，一個完整入職流程（3-5 個 tool call）總計需要 2-5 分鐘。同步阻塞會導致 HTTP timeout，而 async 模式讓前端可以透過 polling `/task/{task_id}` 來追蹤進度。
+> **關鍵設計決策**：CCA 的 `/task` endpoint 使用 `asyncio.create_task()` 實現「fire-and-forget」模式——立即返回 `task_id`，在背景執行 LLM 推理循環。這是因為 CPU 推理（qwen3:8b）每個 iteration 可能耗時 20-40 秒，一個完整入職流程（3-5 個 tool call）總計需要 1-3 分鐘。同步阻塞會導致 HTTP timeout，而 async 模式讓前端可以透過 polling `/task/{task_id}` 來追蹤進度。
 
 ### 12.3.2 CCA LLM 客戶端
 
-CCA 透過 `OllamaClient` 與本地 Ollama 實例通訊。在 MVP 階段，LLM 推理是整個流程的瓶頸——CPU 上的 `qwen2.5:7b` 每次推理約需 30-60 秒。
+CCA 透過 `OllamaClient` 與本地 Ollama 實例通訊。在 MVP 階段，LLM 推理是整個流程的瓶頸——CPU 上的 `qwen3:8b` 每次推理約需 20-40 秒。
 
 ```python
 # agents/cca/llm_client.py
@@ -471,7 +471,7 @@ import httpx
 
 
 class OllamaClient:
-    def __init__(self, base_url: str = "http://ollama:11434", model: str = "llama3:8b"):
+    def __init__(self, base_url: str = "http://ollama:11434", model: str = "qwen3:8b"):
         self.base_url = base_url
         self.model = model
         self.client = httpx.AsyncClient(base_url=base_url, timeout=600.0)  # 10 分鐘超時，CPU 推理較慢
@@ -969,10 +969,10 @@ async def health():
 - 無需 GPU — 所有 LLM 推理在 CPU 上運行
 
 # 安裝 Ollama 模型（在服務啟動後執行）
-docker compose exec ollama ollama pull qwen2.5:7b  # 下載 ~4.7GB 模型文件
+docker compose exec ollama ollama pull qwen3:8b  # 下載 ~4.7GB 模型文件
 ```
 
-> **為什麼不需要 GPU？** MVP 選擇 `qwen2.5:7b`（~4.7GB）是因為它在 CPU 上的推理品質足夠驅動結構化 JSON 輸出。一個入職流程（3-5 個 tool call）大約需要 2-5 分鐘完成，這對演示來說完全可以接受。如果你有 NVIDIA GPU，可以在 docker-compose.yml 中取消 Ollama 服務的 GPU 限制，切換到 `qwen3:14b` 或 `llama4-scout` 獲得 5-10 倍的推理速度。
+> **為什麼不需要 GPU？** MVP 選擇 `qwen3:8b`（~4.7GB）是因為它在 CPU 上的推理品質足夠驅動結構化 JSON 輸出。一個入職流程（3-5 個 tool call）大約需要 1-3 分鐘完成，這對演示來說完全可以接受。如果你有 NVIDIA GPU，可以在 docker-compose.yml 中取消 Ollama 服務的 GPU 限制，切換到 `qwen3:14b` 或 `llama4-scout` 獲得 5-10 倍的推理速度。
 
 ### 12.5.2 啟動步驟
 
@@ -993,7 +993,7 @@ docker compose up -d
 docker compose ps  # 確認所有服務 healthy
 
 # 5. 安裝 LLM 模型
-docker compose exec ollama ollama pull qwen2.5:7b
+docker compose exec ollama ollama pull qwen3:8b
 
 # 6. 驗證平台
 ./scripts/verify_setup.sh
@@ -1247,7 +1247,7 @@ import httpx
 
 
 class OllamaClient:
-    def __init__(self, base_url: str = "http://ollama:11434", model: str = "llama3:8b"):
+    def __init__(self, base_url: str = "http://ollama:11434", model: str = "qwen3:8b"):
         self.base_url = base_url
         self.model = model
         self.client = httpx.AsyncClient(base_url=base_url, timeout=600.0)  # 10 分鐘超時，CPU 推理較慢
@@ -1279,19 +1279,18 @@ class OllamaClient:
         await self.client.aclose()
 ```
 
-> **MVP 的刻意簡化**：對比前面章節介紹的生產級 LLM 客戶端（§5.7），這個實現去掉了 OpenTelemetry tracing、結構化日誌、fallback 模型、streaming 支援、重試機制和 circuit breaker。這些都是刻意的——MVP 的目標是「能跑通」，而不是「能上生產」。在 §12.6 的進階擴展路徑中，你會看到如何逐步加入這些能力。
+> **MVP 的刻意簡化**：對比前面章節介紹的生產級 LLM 客戶端設計（§5.5 的配置管理與 §9.8 的 LLM 可觀測性模式），這個實現去掉了 OpenTelemetry tracing、結構化日誌、fallback 模型、streaming 支援、重試機制和 circuit breaker。這些都是刻意的——MVP 的目標是「能跑通」，而不是「能上生產」。在 §12.6 的進階擴展路徑中，你會看到如何逐步加入這些能力。
 
-### 12.8.2 為什麼選 `qwen2.5:7b`？
+### 12.8.2 為什麼選 `qwen3:8b`？
 
 | 模型 | 大小 | CPU 推理速度 | JSON 輸出品質 | 記憶體佔用 |
 |------|------|-------------|--------------|-----------|
-| `qwen2.5:3b` | 2.0GB | ~15 tokens/s | 一般 | ~3GB |
-| **`qwen2.5:7b`** | **4.7GB** | **~8 tokens/s** | **良好** | **~6GB** |
-| `qwen2.5:14b` | 9.0GB | ~3 tokens/s | 優秀 | ~11GB |
-| `qwen3:8b` | 4.7GB | ~8 tokens/s | 良好 | ~6GB |
+| `qwen3:4b` | 2.5GB | ~15 tokens/s | 一般 | ~3GB |
+| **`qwen3:8b`** | **4.7GB** | **~10 tokens/s** | **良好** | **~6GB** |
+| `qwen3:14b` | 9.0GB | ~4 tokens/s | 優秀 | ~11GB |
 | `llama4-scout` | ~12GB | ~5 tokens/s (CPU) | 優秀 | ~16GB |
 
-`qwen2.5:7b` 在 CPU-only 環境下提供了最佳的性價比：足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，同時保持合理的推理速度。一個典型的入職流程（5 個 tool call × 每次 ~30 秒 LLM 推理）大約需要 2-3 分鐘完成。
+`qwen3:8b` 在 CPU-only 環境下提供了最佳的性價比：足夠的 JSON 結構化輸出能力來驅動 CCA 的工具調用決策，同時保持合理的推理速度。一個典型的入職流程（5 個 tool call × 每次 ~20 秒 LLM 推理）大約需要 1-2 分鐘完成。
 
 ---
 
@@ -1628,7 +1627,7 @@ echo ""
 echo "✅ 驗證完成！"
 ```
 
-> **注意**：驗證腳本中的任務輪詢等待時間設定為 120 次 × 5 秒 = 10 分鐘。這是因為 CPU 上的 `qwen2.5:7b` 推理較慢，一個完整的入職流程（5 個 tool call）可能需要 3-5 分鐘。
+> **注意**：驗證腳本中的任務輪詢等待時間設定為 120 次 × 5 秒 = 10 分鐘。這是因為 CPU 上的 `qwen3:8b` 推理較慢，一個完整的入職流程（5 個 tool call）可能需要 2-4 分鐘。
 
 ---
 
@@ -1640,7 +1639,7 @@ echo "✅ 驗證完成！"
 
 | 設計決策 | 選擇 | 理由 |
 |----------|------|------|
-| LLM 模型 | `qwen2.5:7b` | CPU 可跑、夠用、Ollama 拉取即可 |
+| LLM 模型 | `qwen3:8b` | CPU 可跑、夠用、Ollama 拉取即可 |
 | Agent 編排 | CCA 主循環 + `asyncio.create_task` | 一個 agent 內多任務並發，無需 LangGraph |
 | 工具發現 | 硬編碼 registry | MVP 夠用，生產再做動態發現 |
 | 服務架構 | 12 個扁平容器 | 一服務一容器，清晰可替換 |

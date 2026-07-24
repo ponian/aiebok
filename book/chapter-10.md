@@ -12,7 +12,7 @@ Portal 是連接用戶與 AI Agent 的橋樑。它不僅是一個聊天界面，
 
 ```mermaid
 graph TB
-    subgraph Portal["Portal Platform"]
+    subgraph Portal["前端功能模塊"]
         Chat[對話界面<br/>自然語言交互]
         Tasks[任務管理<br/>狀態追蹤/歷史記錄]
         Audit[審計面板<br/>操作日誌/合規追蹤]

@@ -23,9 +23,9 @@ graph LR
     Update --> Define
 ```
 
-上圖展示了 Specialized Agent 的六階段生命週期。這是一個**持續迭代的閉環**——Agent 永遠不會「完成」，而是不斷根據監控數據優化自身的 Prompt、工具和模型配置。
+上圖展示了 Specialized Agent 的七階段生命週期。這是一個**持續迭代的閉環**——Agent 永遠不會「完成」，而是不斷根據監控數據優化自身的 Prompt、工具和模型配置。
 
-**六個階段的逐一拆解**
+**七個階段的逐一拆解**
 
 | 階段 | 核心任務 | 產出物 | 關鍵角色 |
 |------|---------|-------|---------|
@@ -35,6 +35,7 @@ graph LR
 | **註冊** | 將 Agent 的能力描述、端點地址、版本信息寫入 Agent Registry | Registry 中的 Agent 記錄 | DevOps |
 | **部署** | 通過 Helm Chart 部署到 K8s，Istio 配置流量規則和 mTLS | 運行中的 Pod + Service | DevOps |
 | **監控** | OTel 指標監控（延遲、錯誤率、Token 消耗、幻覺率） | 告警、儀表板、SLO 報告 | SRE |
+| **更新** | 根據監控數據調整 Prompt、更新工具配置或切換模型 | 新版本 Prompt/配置文件、版本變更記錄 | 開發工程師 + SRE |
 
 **閉環的關鍵：Monitor → Update → Define**
 

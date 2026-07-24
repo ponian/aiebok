@@ -12,32 +12,55 @@
 
 ```mermaid
 gantt
-    title AI Agent 平台實施路線圖
+    title AI Agent 平台實施路線圖（36 週）
     dateFormat  YYYY-MM-DD
-    section Phase 1: MVP
-    核心框架搭建           :a1, 2024-01-01, 30d
-    CCA + IT Agent 基礎    :a2, after a1, 21d
-    MCP Service 雛形       :a3, after a1, 21d
-    端到端流程驗證          :a4, after a2, 14d
+    axisFormat  %Y/%m/%d
 
-    section Phase 2: 功能完善
-    HR Agent 開發          :b1, after a4, 21d
-    RAG 知識庫             :b2, after a4, 21d
-    Portal Platform        :b3, after a4, 30d
-    審計與合規              :b4, after b1, 14d
+    section Phase 1 · MVP（6 週）
+    Python 項目結構搭建         :a0, 2027-01-04, 5d
+    CCA 基礎框架               :a1, after a0, 16d
+    LiteLLM + Ollama 配置       :a2, after a0, 11d
+    IT Agent 基礎版本           :a3, after a1, 13d
+    MCP Service 雛形           :a4, after a2, 11d
+    AD API 集成                :a5, after a3, 9d
+    端到端流程測試              :a6, after a5, 11d
+    Bug 修復與優化              :a7, after a6, 5d
+    ✅ M1.4 端到端跑通          :milestone, after a7, 0d
 
-    section Phase 3: 生產加固
-    K8s 部署               :c1, after b3, 21d
-    OpenTelemetry          :c2, after b3, 14d
-    性能優化                :c3, after c1, 21d
-    安全加固                :c4, after c1, 14d
+    section Phase 2 · 功能完善（8 週）
+    HR Agent 開發               :b1, after a7, 16d
+    RAG 知識庫構建              :b2, after a7, 11d
+    審計日誌模塊                :b3, after a7, 9d
+    Portal Backend (FastAPI)    :b4, after b3, 16d
+    Portal Frontend (Next.js)   :b5, after b4, 22d
+    WebSocket 實時通信          :b6, after b4, 9d
+    集成測試                    :b7, after b5, 11d
+    性能測試                    :b8, after b7, 5d
+    ✅ M2.4 審計完整            :milestone, after b8, 0d
 
-    section Phase 4: 擴展
-    新 Agent 開發           :d1, after c3, 30d
-    多租戶支持              :d2, after c3, 21d
-    跨部門協同              :d3, after d1, 30d
-    生產驗證與優化          :d4, after d3, 21d
+    section Phase 3 · 生產加固（6 週）
+    K8s 集群搭建 + Helm Charts   :c1, after b8, 11d
+    Istio 服務網格配置           :c2, after c1, 9d
+    OpenTelemetry 集成           :c3, after b8, 11d
+    Grafana 儀表板 + 告警規則     :c4, after c3, 9d
+    性能優化                     :c5, after c2, 13d
+    安全加固                     :c6, after c2, 11d
+    壓力測試                     :c7, after c5, 9d
+    災難恢復演練                 :c8, after c7, 5d
+    ✅ M3.4 安全審計通過         :milestone, after c8, 0d
+
+    section Phase 4 · 擴展（10 週）
+    財務 Agent 開發              :d1, after c8, 22d
+    法務 Agent 開發              :d2, after c8, 16d
+    多租戶支持                   :d3, after c8, 20d
+    跨部門協同（採購審批）        :d4, after d1, 16d
+    移動端 Portal (React Native)  :d5, after d1, 16d
+    語音交互 (TTS/STT)           :d6, after d5, 11d
+    生產驗證與優化               :d7, after d4, 9d
+    ✅ M4.4 生產驗證完成         :milestone, after d7, 0d
 ```
+
+> **關於工作日計算：** 本時間表以 2027 年 1 月 4 日（週一）為專案啟動日，已將台灣主要國定假日納入考量（元旦、農曆春節、228 和平紀念日、兒童節及清明節、勞動節、端午節、中秋節、國慶日）。各任務工時已預留約 10% 的緩衝以吸收假日影響，實際排程請以團隊行事曆為準。
 
 ---
 
@@ -381,7 +404,7 @@ graph LR
 
 | 能力域 | 現有技能 | 在平台中的對應 |
 |--------|---------|-------------|
-| **Python 後端** | Python + FastAPI | Portal Backend（§10.2）、Agent 開發（§6.2）、MCP Service（§7.2） |
+| **Python 後端** | Python + FastAPI | Portal Backend（§10.7.1）、Agent 開發（§6.2）、MCP Service（§7.2） |
 | **前端開發** | React + Next.js | Portal Frontend（§10.1），可直接使用 shadcn/ui 組件庫 |
 | **DevOps** | Docker + CI/CD | 可直接擴展為 K8s + Helm + ArgoCD 的雲原生 DevOps 流水線 |
 
@@ -552,7 +575,7 @@ AI Agent 平台涉及 LLM 推理的非確定性，這使得「大爆炸切換」
 
 ---
 
-## 11.15 變革管理策略
+## 11.13 變革管理策略
 
 技術平台的成功不僅取決於代碼質量，更取決於**人是否願意使用**。以下是變革管理的系統化方法。
 
@@ -615,7 +638,7 @@ graph TB
 
 **溝通策略的差異化**
 
-不同角色需要不同頻率和深度的溝通。CTO 需要季度簡報（關注戰略價值），IT 操作人員需要每週工作坊（關注實操細節），終端用戶需要月度公告（關注新功能和使用指南）。詳見 §11.15.3 的分階段溝通計劃。
+不同角色需要不同頻率和深度的溝通。CTO 需要季度簡報（關注戰略價值），IT 操作人員需要每週工作坊（關注實操細節），終端用戶需要月度公告（關注新功能和使用指南）。詳見 §11.13.3 的分階段溝通計劃。
 
 ### 11.15.3 分階段溝通計劃
 
@@ -649,7 +672,7 @@ graph TB
 
 ---
 
-## 11.16 質量保證策略
+## 11.14 質量保證策略
 
 ### 11.16.1 測試金字塔
 
@@ -707,7 +730,7 @@ E2E 測試是最昂貴的測試類型——它需要啟動整個平台（13 個 
 
 ---
 
-## 11.14 術語表（Glossary）
+## 11.15 術語表（Glossary）
 
 本章及全書涉及的核心術語一覽：
 
