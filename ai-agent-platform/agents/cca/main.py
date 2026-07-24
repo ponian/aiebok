@@ -67,6 +67,35 @@ async def get_task(task_id: str):
     return tasks[task_id]
 
 
+def _parse_llm_json(text: str) -> dict | None:
+    """Extract a JSON object from LLM output that may contain markdown fences or
+    surrounding prose. Returns None if no valid JSON object is found."""
+    if not text or not text.strip():
+        return None
+
+    # 1. Fenced code block
+    if "```json" in text:
+        try:
+            return json.loads(text.split("```json")[1].split("```")[0].strip())
+        except (json.JSONDecodeError, IndexError):
+            pass
+
+    # 2. First { … last } slice
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last > first:
+        try:
+            return json.loads(text[first : last + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Whole string
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
 async def process_task(task_id: str, content: str):
     """Process a task through the LLM orchestration loop"""
     task = tasks[task_id]
@@ -85,20 +114,14 @@ async def process_task(task_id: str, content: str):
         response_text = await llm.generate(prompt, CCA_SYSTEM_PROMPT)
 
         # Parse LLM response
-        try:
-            # Try to extract JSON from response
-            if "```json" in response_text:
-                json_str = response_text.split("```json")[1].split("```")[0]
-            elif "{" in response_text:
-                json_str = response_text[response_text.index("{") : response_text.rindex("}") + 1]
+        response_data = _parse_llm_json(response_text)
+        if response_data is None:
+            if response_text and response_text.strip():
+                task["status"] = "completed"
+                task["result"] = response_text.strip()
             else:
-                json_str = response_text
-
-            response_data = json.loads(json_str)
-        except json.JSONDecodeError:
-            # If LLM doesn't return valid JSON, treat as final response
-            task["status"] = "completed"
-            task["result"] = response_text
+                task["status"] = "completed"
+                task["result"] = "LLM 回應為空，請稍後重試"
             return
 
         # Check for tool calls

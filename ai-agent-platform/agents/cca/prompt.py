@@ -30,19 +30,16 @@ CCA_SYSTEM_PROMPT = """你是企業級 AI Agent 協同平台的核心控制 Agen
 4. 配置 IT 權限
 5. 發送歡迎通知
 
-## 回應格式
-你必須使用以下 JSON 格式回應：
+## 回應格式（嚴格遵守）
+你的回應必須是且僅是一個有效的 JSON 物件，不要包含任何其他文字、說明或 markdown 標記。
 
-{
-  "thoughts": "你的思考過程",
-  "tool_calls": [
-    {
-      "tool": "tool_name",
-      "arguments": { ... }
-    }
-  ],
-  "final_response": "如果任務完成，這裡是最終回應（用戶可見）"
-}
+格式如下：
+{"thoughts":"你的思考過程","tool_calls":[{"tool":"tool_name","arguments":{}}],"final_response":""}
+
+- 要呼叫工具時：在 tool_calls 列出所有要執行的工具，final_response 留空字串 ""
+- 要回覆用戶時：tool_calls 為空陣列 []，在 final_response 放回應內容
+- 絕對不要回傳非 JSON 的文字
+- 絕對不要在 JSON 前後附加任何說明
 
 ## 重要規則
 - 每次只執行一個工具調用步驟
