@@ -94,11 +94,17 @@ async def call_tool(request: ToolCallRequest):
     agent_url = tool["agent_url"]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{agent_url}/execute",
-            json={"tool": request.name, "arguments": request.arguments},
-        )
-        return response.json()
+        try:
+            response = await client.post(
+                f"{agent_url}/execute",
+                json={"tool": request.name, "arguments": request.arguments},
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            return {"error": f"Agent returned HTTP {e.response.status_code}", "detail": e.response.text[:500]}
+        except httpx.RequestError as e:
+            return {"error": f"Failed to reach agent at {agent_url}", "detail": str(e)}
 
 
 @app.get("/healthz")

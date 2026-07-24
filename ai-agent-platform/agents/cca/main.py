@@ -133,11 +133,17 @@ async def process_task(task_id: str, content: str):
 async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
     """Call a tool via MCP Service"""
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{MCP_SERVICE_URL}/mcp/tools/call",
-            json={"name": tool_name, "arguments": arguments},
-        )
-        return response.json()
+        try:
+            response = await client.post(
+                f"{MCP_SERVICE_URL}/mcp/tools/call",
+                json={"name": tool_name, "arguments": arguments},
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            return {"error": f"MCP returned HTTP {e.response.status_code}", "detail": e.response.text[:500]}
+        except httpx.RequestError as e:
+            return {"error": f"Failed to reach MCP service at {MCP_SERVICE_URL}", "detail": str(e)}
 
 
 @app.get("/healthz")
